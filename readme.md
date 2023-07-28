@@ -17,6 +17,13 @@ Run `main.py` to start the game. The goal of the game is to slide the number blo
 python main.py
 ```
 
+## Results
+
+Here are the results of the training process:
+
+![Results](result/nn_prioritize_replay_no_invalid_gamma_099_2.png)
+
+This plot contains four subplots showing the game score, loss, game turns, and game invalid turn ratio, respectively, as the training progresses.
 
 ## How to Train the AI
 
@@ -36,7 +43,6 @@ While developing this project, a few key lessons were learnt:
 - An excessively high initial learning rate and a wrong optimizer can easily lead to hitting the boundary. It's crucial to monitor the loss during the training process.
 - The size of epsilon in the reinforcement learning process is an important parameter.
 - By fixing the random seed at the beginning, the training process can be made deterministic and reproducible.
-
 
 ---
 
