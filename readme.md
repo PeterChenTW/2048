@@ -1,54 +1,48 @@
-Here is the README.md in English:
 
-# 2048 Game 
+# 2048 Reinforcement Learning Project
 
-This is an implementation of the 2048 game using Python and the Pygame module.
+This project consists of a 2048 game implementation and a program that trains a game AI using reinforcement learning.
 
-## Gameplay
+## Contents
 
-- Use the arrow keys to move all the tiles
-- When two tiles with the same number touch, they merge into one tile with double the number  
-- A new tile with the number 2 or 4 will be generated in an empty spot after each move
-- The goal is to create higher numbered tiles, with the ultimate goal of reaching 2048
-- The game ends when there are no valid moves left
+- `main.py`: The main entry point of the application. This file contains the code to start the game and train the AI.
+- `game_2048.py`: The implementation of the 2048 game, including the game logic and the UI interface.
+- `RL.py`: The implementation of the reinforcement learning. This file contains the code to train the AI.
 
-## Features
+## How to Run the Game
 
-- Pygame module is used to generate graphics and handle user input
-- Progressive score and tile colors 
-- Merging tiles make sound effects
+Run `main.py` to start the game. The goal of the game is to slide the number blocks on a 4x4 grid. Each slide randomly generates a 2 or 4 in an empty position. When two blocks with the same number collide, they merge into their sum. The game ends when the board is filled with numbers and no valid moves can be made.
 
-## Installation
-
-### Requirements
-
-- Python 3
-- Pygame
-
-```
-pip install pygame
+```bash
+python main.py
 ```
 
-### Running the Game
 
+## How to Train the AI
+
+If you wish to train your own AI, you can run the `train_DDQN` function in `main.py`. This will train the AI using reinforcement learning.
+
+```bash
+python main.py
 ```
-python 2048.py
-```
 
-Use the arrow keys to play.
+Note that the training process might take some time and will vary depending on the performance of your system.
 
-## Game Screenshot
+## Lessons Learned
 
-The game screen looks like:
+While developing this project, a few key lessons were learnt:
 
-![2048 game screenshot](screenshot.png)
+- Removing invalid moves helped in reducing the action space, thereby making the AI training process more efficient.
+- An excessively high initial learning rate and a wrong optimizer can easily lead to hitting the boundary. It's crucial to monitor the loss during the training process.
+- The size of epsilon in the reinforcement learning process is an important parameter.
+- By fixing the random seed at the beginning, the training process can be made deterministic and reproducible.
 
-## Credits
 
-This game was developed by csro7788.
+---
 
-For any questions, feel free to contact me at csro7788@gmail.com
+Here is the AI in action:
 
-## License
+![AI Playing 2048](game_recording.gif)
 
-This project is released under the MIT License.
+---
+
