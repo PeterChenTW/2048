@@ -16,7 +16,39 @@ Run `main.py` to start the game. The goal of the game is to slide the number blo
 ```bash
 python main.py
 ```
-
+## Flow
+```mermaid
+graph TD
+    A[Initialize agent, env, records]
+    B[Train for episodes]
+    C[Get initial state]
+    D[Agent chooses action]
+    E[Env executes action, returns reward etc.]
+    F[Store transition] 
+    G[Update state]
+    H{Done?}
+    I[Record and print episode info]
+    J[Agent replays memory]
+    K[Update target net periodically]
+    L[Reset env]
+    M[Save model periodically]
+    
+    A-->B
+    B-->C
+    C-->D
+    D-->E
+    E-->F
+    E-->G
+    G-->H
+    H--Yes-->I
+    I-->L 
+    L-->B
+    H--No-->D
+    
+    B-->J
+    J-->K
+    K-->M
+```
 ## Results
 
 Here are the results of the training process:
