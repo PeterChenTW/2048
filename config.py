@@ -29,3 +29,5 @@ class DQNConfig:
     n_step: int = 1
     reward_mode: str = 'log'
     reward_scale: float = 256.0
+    restart_frac: float = 0.0
+    restart_pool_size: int = 5000
