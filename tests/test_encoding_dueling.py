@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import math
 import numpy as np
 import pytest
 import torch
@@ -257,3 +258,111 @@ def test_state_dict_save_load_roundtrip() -> None:
         loaded_q = model2(board)
 
     assert torch.equal(expected_q, loaded_q)
+
+
+def test_dueling_combine_hand_computed() -> None:
+    v = torch.tensor([[10.0]])
+    a = torch.tensor([[1.0, 3.0, 5.0, 7.0]])
+    q = DuelingHead.combine(v, a)
+    expected = torch.tensor([[7.0, 9.0, 11.0, 13.0]])
+    assert torch.allclose(q, expected)
+    assert q.shape == (1, 4)
+
+
+def test_dueling_combine_1d_value_per_sample() -> None:
+    v = torch.tensor([10.0, 20.0, 30.0, 40.0])  # (N,) with N=4
+    a = torch.zeros((4, 4))
+    q = DuelingHead.combine(v, a)
+
+    # Per-sample addition ensures sample i gets v[i] across all actions:
+    expected = torch.tensor([
+        [10.0, 10.0, 10.0, 10.0],
+        [20.0, 20.0, 20.0, 20.0],
+        [30.0, 30.0, 30.0, 30.0],
+        [40.0, 40.0, 40.0, 40.0],
+    ])
+    assert torch.allclose(q, expected)
+    # Ensure it did NOT do per-action addition (where row 0 would be [10, 20, 30, 40])
+    assert not torch.allclose(q[0], v)
+
+    # Check non-zero advantage stream matches 2D value.unsqueeze(-1)
+    a_nonzero = torch.tensor([
+        [1.0, 3.0, 5.0, 7.0],
+        [2.0, 4.0, 6.0, 8.0],
+        [-1.0, 0.0, 1.0, 2.0],
+        [0.0, 5.0, -5.0, 0.0],
+    ])
+    q_1d = DuelingHead.combine(v, a_nonzero)
+    q_2d = DuelingHead.combine(v.unsqueeze(-1), a_nonzero)
+    assert torch.allclose(q_1d, q_2d)
+
+
+def test_dueling_combine_shape_validation() -> None:
+    # Batch dimension mismatch
+    with pytest.raises(ValueError):
+        DuelingHead.combine(torch.tensor([[1.0], [2.0]]), torch.zeros((3, 4)))
+
+    # 2D value trailing dimension != 1
+    with pytest.raises(ValueError):
+        DuelingHead.combine(torch.zeros((4, 2)), torch.zeros((4, 4)))
+
+    # 3D value
+    with pytest.raises(ValueError):
+        DuelingHead.combine(torch.zeros((4, 1, 1)), torch.zeros((4, 4)))
+
+    # Incompatible advantage dimension
+    with pytest.raises(ValueError):
+        DuelingHead.combine(torch.zeros((4, 1)), torch.zeros(4))
+
+
+@pytest.mark.parametrize("k", range(1, 16))
+def test_tile_maps_to_channel_k(k: int) -> None:
+    tile = 2 ** k
+    expected_channel = int(math.log2(tile))
+    assert expected_channel == k
+
+    board_np = np.zeros((4, 4), dtype=np.int64)
+    board_np[1, 2] = tile
+
+    enc_np = log2_onehot(board_np)
+    assert enc_np.shape == (1, 16, 4, 4)
+    assert enc_np[0, expected_channel, 1, 2] == 1.0
+    assert enc_np[0, :, 1, 2].sum() == 1.0
+    assert enc_np[0, 0, 0, 0] == 1.0
+
+    board_torch = torch.from_numpy(board_np)
+    enc_torch = log2_onehot_torch(board_torch)
+    assert enc_torch.shape == (1, 16, 4, 4)
+    assert enc_torch[0, expected_channel, 1, 2].item() == 1.0
+    assert enc_torch[0, :, 1, 2].sum().item() == 1.0
+    assert enc_torch[0, 0, 0, 0].item() == 1.0
+
+
+def test_onehot_dueling_dqn_int64_input() -> None:
+    torch.manual_seed(42)
+    model = OneHotDuelingDQN(channels=128, hidden=256, n_actions=4)
+    model.eval()
+
+    board_int64 = torch.tensor(
+        [
+            [2, 4, 8, 16],
+            [32, 64, 128, 256],
+            [512, 1024, 2048, 4096],
+            [0, 0, 2, 4],
+        ],
+        dtype=torch.int64,
+    )
+    with torch.no_grad():
+        out_int = model(board_int64)
+        out_float = model(board_int64.to(dtype=torch.float32))
+
+    assert out_int.shape == (1, 4)
+    assert out_int.dtype == torch.float32
+    assert torch.equal(out_int, out_float)
+
+    # Also test batch dimension with int64
+    batch_int64 = board_int64.unsqueeze(0).repeat(4, 1, 1)
+    with torch.no_grad():
+        out_batch = model(batch_int64)
+    assert out_batch.shape == (4, 4)
+    assert torch.allclose(out_batch, out_int.repeat(4, 1))

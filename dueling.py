@@ -39,7 +39,21 @@ class DuelingHead(nn.Module):
     @staticmethod
     def combine(value: torch.Tensor, advantage: torch.Tensor) -> torch.Tensor:
         """Combine state value (N, 1) and action advantages (N, A) into Q-values (N, A)."""
-        return value + (advantage - advantage.mean(dim=1, keepdim=True))
+        if value.ndim == 1:
+            value = value.unsqueeze(-1)
+        if value.ndim != 2 or advantage.ndim != 2:
+            raise ValueError(
+                f"Expected 2D tensors (or 1D for value), got value.ndim={value.ndim}, advantage.ndim={advantage.ndim}"
+            )
+        if value.shape[0] != advantage.shape[0]:
+            raise ValueError(
+                f"Batch dimension mismatch: value has {value.shape[0]} samples, advantage has {advantage.shape[0]} samples"
+            )
+        if value.shape[-1] != 1:
+            raise ValueError(
+                f"Value tensor must have shape (N, 1), got shape {tuple(value.shape)}"
+            )
+        return value + (advantage - advantage.mean(dim=-1, keepdim=True))
 
     def forward_streams(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Return (value, advantage) tensors before aggregation."""
