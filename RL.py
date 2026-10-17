@@ -92,8 +92,12 @@ class DDQNAgent:
                 not isinstance(self.config.epsilon_decay_steps, int) or
                 self.config.epsilon_decay_steps < 1):
             raise ValueError('epsilon_decay_steps must be a positive integer')
-        if self.config.arch not in ('legacy', 'onehot_dueling'):
+        if self.config.arch not in ('legacy', 'onehot_dueling', 'onehot_afterstate'):
             raise ValueError(f'unknown architecture: {self.config.arch}')
+        if self.config.arch == 'onehot_afterstate':
+            from afterstate_agent import AfterstateAgent
+            if not isinstance(self, AfterstateAgent):
+                raise ValueError('onehot_afterstate requires AfterstateAgent, not DDQNAgent')
         if (isinstance(self.config.n_step, bool) or
                 not isinstance(self.config.n_step, int) or self.config.n_step < 1):
             raise ValueError('n_step must be a positive integer')
@@ -107,6 +111,9 @@ class DDQNAgent:
         self.replay_calls = 0
         self.epsilon = self.config.epsilon_start
         network = DQN if self.config.arch == 'legacy' else OneHotDuelingDQN
+        if self.config.arch == 'onehot_afterstate':
+            from value_net import OneHotValueNet
+            network = OneHotValueNet
         self.model = network()
         self.target_model = network()
         self.update_target_model()
@@ -231,7 +238,8 @@ def _read_checkpoint(path):
         return payload, 'legacy'
     if payload['format'] != 'dqn2048-v2':
         raise ValueError(f"unsupported checkpoint format: {payload['format']!r}")
-    architectures = {'onehot_dueling_v1': 'onehot_dueling', 'legacy': 'legacy'}
+    architectures = {'onehot_dueling_v1': 'onehot_dueling', 'legacy': 'legacy',
+                     'onehot_afterstate_v1': 'onehot_afterstate'}
     architecture = payload.get('architecture')
     if architecture not in architectures:
         raise ValueError(f'unsupported checkpoint architecture: {architecture!r}')
@@ -246,7 +254,11 @@ def load_checkpoint(path):
     payload, arch = _read_checkpoint(path)
     config = DQNConfig(**payload.get('config', {})) if 'format' in payload else DQNConfig()
     config.arch = arch
-    agent = DDQNAgent(16, 4, config)
+    if arch == 'onehot_afterstate':
+        from afterstate_agent import AfterstateAgent
+        agent = AfterstateAgent(16, 4, config)
+    else:
+        agent = DDQNAgent(16, 4, config)
     state = payload['state_dict'] if 'format' in payload else payload
     agent.model.load_state_dict(state, strict=True)
     agent.update_target_model()
