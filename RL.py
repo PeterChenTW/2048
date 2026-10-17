@@ -104,12 +104,21 @@ class SumTree:
 class DDQNAgent:
     def __init__(self, state_size, action_size, config=None):
         self.config = config if config is not None else DQNConfig()
-        if self.config.epsilon_schedule not in ('update_exp', 'linear_steps'):
+        if self.config.epsilon_schedule not in ('update_exp', 'linear_steps', 'episode_exp'):
             raise ValueError(f'unknown epsilon schedule: {self.config.epsilon_schedule}')
         if (isinstance(self.config.epsilon_decay_steps, bool) or
                 not isinstance(self.config.epsilon_decay_steps, int) or
                 self.config.epsilon_decay_steps < 1):
             raise ValueError('epsilon_decay_steps must be a positive integer')
+        if (isinstance(self.config.epsilon_decay_start_episode, bool) or
+                not isinstance(self.config.epsilon_decay_start_episode, int) or
+                self.config.epsilon_decay_start_episode < 0):
+            raise ValueError('epsilon_decay_start_episode must be a nonnegative integer')
+        if (isinstance(self.config.epsilon_decay, bool) or
+                not isinstance(self.config.epsilon_decay, (int, float)) or
+                not (0 < self.config.epsilon_decay <= 1) or
+                not np.isfinite(self.config.epsilon_decay)):
+            raise ValueError('epsilon_decay must be a finite number in (0, 1]')
         if self.config.arch not in ('legacy', 'onehot_dueling', 'onehot_conv2x2',
                                     'onehot_afterstate'):
             raise ValueError(f'unknown architecture: {self.config.arch}')
@@ -217,6 +226,14 @@ class DDQNAgent:
             fraction = min(step / self.config.epsilon_decay_steps, 1.0)
             self.epsilon = max(self.config.epsilon_min, self.config.epsilon_start -
                                (self.config.epsilon_start - self.config.epsilon_min) * fraction)
+
+    def end_episode(self, episode):
+        """Update exploration for per-episode schedule at the end of each episode."""
+        if (self.config.epsilon_schedule == 'episode_exp' and
+                episode > self.config.epsilon_decay_start_episode and
+                self.epsilon > self.config.epsilon_min):
+            self.epsilon = max(self.config.epsilon_min, self.epsilon * self.config.epsilon_decay)
+
 
     def replay(self, batch_size=None):
         batch_size = self.config.batch_size if batch_size is None else batch_size
