@@ -14,7 +14,7 @@ from config import DQNConfig
 from fast_board import FastBoard
 from nstep import NStepTransition, double_dqn_targets
 from RL import DDQNAgent
-from tools.analyze_q_td import analyze_checkpoint, batch_terms, collect_transitions
+from tools.analyze_q_td import analyze_checkpoint, batch_terms, collect_transitions, reward_profile
 
 
 @pytest.mark.parametrize('mode', ['log', 'linear'])
@@ -38,7 +38,7 @@ def test_cli_finite_reports_and_exact_rewards(tmp_path, mode):
     assert result['optimizer_updates'] == 0
     assert result['grad_batches'] == len(result['grad_norms']) == 20
     for metric in result['metrics'].values():
-        assert set(metric) == {'p1', 'p5', 'p25', 'p50', 'p75', 'p95', 'p99', 'mean', 'std'}
+        assert set(metric) == {'p1', 'p5', 'p10', 'p25', 'p50', 'p75', 'p90', 'p95', 'p99', 'mean', 'std'}
         assert all(math.isfinite(value) for value in metric.values())
     for key in ('fraction_abs_td_gt_1', 'fraction_clipped'):
         assert 0 <= result[key] <= 1
@@ -111,3 +111,34 @@ def test_afterstate_is_clearly_skipped(tmp_path):
     result = analyze_checkpoint(checkpoint, label='afterstate', states=2, batch=2, grad_batches=1)
     assert result['status'] == 'skipped'
     assert 'V(afterstate)' in result['reason']
+
+
+@pytest.mark.parametrize('mode', ['log', 'linear'])
+def test_reward_profile_matches_training_formulas(mode):
+    torch.set_num_threads(1)
+    config = DQNConfig(arch='onehot_dueling', seed=3, reward_mode=mode, reward_scale=256,
+                       memory_capacity=32)
+    agent = DDQNAgent(16, 4, config)
+    agent.model.eval()
+    prof = reward_profile(agent, games=2, seed=5, max_steps=150)
+    assert prof['epsilon'] == 0.0 and prof['mode'] == mode and 0 < prof['steps'] <= 300
+    for key in ('own', 'as_log', 'as_linear'):
+        st = prof[key]
+        assert {'p10', 'p50', 'p90', 'p99', 'mean', 'frac_zero', 'frac_neg'} <= set(st)
+        assert all(math.isfinite(v) for v in st.values())
+        assert 0 <= st['frac_zero'] <= 1 and st['p10'] <= st['p50'] <= st['p90'] <= st['p99']
+    assert prof['own'] == prof['as_log' if mode == 'log' else 'as_linear']
+    # zero-merge steps get reward 0 under both formulas, so the zero fraction is formula independent
+    assert prof['as_log']['frac_zero'] == prof['as_linear']['frac_zero']
+    assert abs(sum(prof['merge_score_fraction'].values()) - 1) < 1e-9
+    assert prof['as_log']['frac_zero'] == pytest.approx(prof['merge_score_fraction']['0-0'])
+
+
+def test_reward_formula_reference_values():
+    from rewards import shape_reward
+    assert shape_reward(4, True, 'linear', 256) == pytest.approx(0.015625)
+    assert shape_reward(4, True, 'log') == pytest.approx(math.log2(5) / 16)  # 0.1451
+    assert shape_reward(1024, True, 'linear', 256) == pytest.approx(4.0)
+    assert shape_reward(1024, True, 'log') == pytest.approx(math.log2(1025) / 16)  # 0.6251
+    assert shape_reward(0, True, 'log') == shape_reward(0, True, 'linear') == 0
+    assert shape_reward(8, False, 'log') == shape_reward(8, False, 'linear') == -1.0

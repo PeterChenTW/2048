@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from RL import load_checkpoint
 from fast_board import FastBoard
 from nstep import NStepAccumulator, double_dqn_targets
-from rewards import shape_reward
+from rewards import merge_rewards, shape_reward
 
 
 NOTES = [
@@ -38,14 +38,22 @@ NOTES = [
     'bootstraps normally. Complete-episode and partial-episode statistics are separate.',
     'max_a Q(s) is over all four actions (unmasked); action selection and bootstrap '
     'targets are masked to legal actions.',
+    'Per-step reward profile: neither the training CSV nor the checkpoint stores per-step '
+    'rewards or the replay buffer, so rewards are sampled from fresh GREEDY (epsilon=0) '
+    'episodes of each checkpoint (--reward-games, 1 thread). For each step the turn merge '
+    'score m is recorded and the reward is computed with the training formulas '
+    '(rewards.py / fast_board.py): log = log2(1+m)/16, linear = m/reward_scale, and -1 in '
+    'both modes when no tile spawned. "own" uses the checkpoint reward mode; "as_log" and '
+    '"as_linear" re-score the same trajectory with each formula.',
 ]
+MERGE_BUCKETS = ((0, 0), (1, 16), (17, 128), (129, 1024), (1025, None))
 
 
 def summarize(values):
     values = np.asarray(values, dtype=np.float64)
     if values.size == 0 or not np.isfinite(values).all():
         raise FloatingPointError('diagnostic values must be nonempty and finite')
-    result = {f'p{p}': float(np.percentile(values, p)) for p in (1, 5, 25, 50, 75, 95, 99)}
+    result = {f'p{p}': float(np.percentile(values, p)) for p in (1, 5, 10, 25, 50, 75, 90, 95, 99)}
     result.update(mean=float(values.mean()), std=float(values.std()))
     return result
 
@@ -96,6 +104,47 @@ def collect_transitions(agent, states=4000, seed=0, epsilon=0.05):
     return transitions, episodes, rewards
 
 
+def reward_profile(agent, games=10, seed=0, max_steps=5000):
+    """Greedy rollouts: per-step reward distribution under the checkpoint's own and both formulas."""
+    scale = agent.config.reward_scale
+    merges, spawned_flags, scores = [], [], []
+    for game in range(games):
+        board = FastBoard(rng=random.Random(seed + 2_000_000 + game))
+        steps = 0
+        while steps < max_steps:
+            invalid = board.get_invalid_moves()
+            if len(invalid) == 4:
+                break
+            state = board.state.astype(np.float32).reshape(16).copy()
+            with torch.no_grad():
+                q = agent.model(torch.from_numpy(state)).reshape(4)
+                q[invalid] = -torch.inf
+                action = int(q.argmax().item())
+            _, env_reward, done = board.move(action)
+            merges.append(int(board.get_score))
+            spawned_flags.append(env_reward != -1)
+            steps += 1
+            if done:
+                break
+        scores.append(int(board.score_v2))
+    merges = np.asarray(merges, dtype=np.float64)
+    spawned = np.asarray(spawned_flags, dtype=bool)
+    def rewards_for(mode):
+        values = np.where(spawned, merge_rewards(merges, mode, scale), -1.0)
+        stats = summarize(values)
+        stats.update(frac_zero=float(np.mean(values == 0)), frac_neg=float(np.mean(values < 0)))
+        return stats
+    buckets = {}
+    for low, high in MERGE_BUCKETS:
+        mask = merges >= low if high is None else (merges >= low) & (merges <= high)
+        buckets[f'{low}-{high if high is not None else "inf"}'] = float(np.mean(mask))
+    return dict(games=games, steps=int(merges.size), max_steps=max_steps, epsilon=0.0,
+                mode=agent.config.reward_mode, scale=scale,
+                mean_score=float(np.mean(scores)), scores=scores,
+                own=rewards_for(agent.config.reward_mode), as_log=rewards_for('log'),
+                as_linear=rewards_for('linear'), merge_score_fraction=buckets)
+
+
 def batch_terms(model, transitions):
     """Use the training target helper with detached bootstrap and TD = target - Q."""
     states = torch.as_tensor(np.stack([t.state for t in transitions]), dtype=torch.float32)
@@ -111,7 +160,7 @@ def batch_terms(model, transitions):
 
 
 def analyze_checkpoint(checkpoint, *, label, states=4000, seed=0, epsilon=0.05,
-                       batch=128, grad_batches=20):
+                       batch=128, grad_batches=20, reward_games=10, reward_max_steps=5000):
     torch.set_num_threads(1)
     started = time.perf_counter()
     agent = load_checkpoint(checkpoint)
@@ -145,6 +194,8 @@ def analyze_checkpoint(checkpoint, *, label, states=4000, seed=0, epsilon=0.05,
         norms.append(float(norm.item()))
     metrics['grad_norm'] = summarize(norms)
     complete = [episode for episode in episodes if episode['complete']]
+    if reward_games > 0:
+        result['reward_profile'] = reward_profile(agent, reward_games, seed, reward_max_steps)
     result.update(
         status='ok', states=len(transitions), env_steps=len(rewards), optimizer_updates=0,
         seed=seed, epsilon=epsilon, batch=batch, grad_batches=grad_batches,
@@ -185,6 +236,24 @@ def markdown_report(report):
             f'{result["fraction_abs_td_gt_1"]:.1%} | '
             f'{quantiles(metrics["grad_norm"], (50, 95))} | '
             f'{result["fraction_clipped"]:.1%} | {quantiles(metrics["reward"], (50, 95))} |')
+    profiles = [(label, r['reward_profile']) for label, r in report['results'].items()
+                if r['status'] == 'ok' and 'reward_profile' in r]
+    if profiles:
+        lines.extend(['', '## Per-step reward (greedy rollouts)', '',
+                      '| label | mode | games / steps | greedy mean score | reward | mean | p10 | p50 | p90 | p99 | frac 0 | frac -1 |',
+                      '|---|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|'])
+        for label, prof in profiles:
+            for key in ('own', 'as_log', 'as_linear'):
+                st = prof[key]
+                name = f'own ({prof["mode"]})' if key == 'own' else key
+                lines.append(f'| {label} | {prof["mode"]} | {prof["games"]} / {prof["steps"]} | '
+                             f'{prof["mean_score"]:.0f} | {name} | {st["mean"]:.4g} | {st["p10"]:.4g} | '
+                             f'{st["p50"]:.4g} | {st["p90"]:.4g} | {st["p99"]:.4g} | '
+                             f'{st["frac_zero"]:.1%} | {st["frac_neg"]:.1%} |')
+        lines.extend(['', '| label | ' + ' | '.join(f'm {k}' for k in profiles[0][1]['merge_score_fraction']) + ' |',
+                      '|---|' + '---:|' * len(profiles[0][1]['merge_score_fraction'])])
+        for label, prof in profiles:
+            lines.append(f'| {label} | ' + ' | '.join(f'{v:.1%}' for v in prof['merge_score_fraction'].values()) + ' |')
     lines.extend(['', 'Episode scores use score_v2 (merge points). Means across all collected '
                   'episode segments include the final partial episode; completed means exclude it.', ''])
     for label, result in report['results'].items():
@@ -215,6 +284,9 @@ def main(argv=None):
     parser.add_argument('--epsilon', type=float, default=0.05)
     parser.add_argument('--batch', type=int, default=128)
     parser.add_argument('--grad-batches', type=int, default=20)
+    parser.add_argument('--reward-games', type=int, default=10,
+                        help='greedy episodes per checkpoint for the per-step reward profile (0 = skip)')
+    parser.add_argument('--reward-max-steps', type=int, default=5000)
     parser.add_argument('--threads', type=int, choices=(1,), default=1)
     parser.add_argument('--json', type=Path)
     parser.add_argument('--md', type=Path)
@@ -231,7 +303,9 @@ def main(argv=None):
     for checkpoint, label in zip(args.checkpoint, labels):
         result = analyze_checkpoint(checkpoint, label=label, states=args.states, seed=args.seed,
                                     epsilon=args.epsilon, batch=args.batch,
-                                    grad_batches=args.grad_batches)
+                                    grad_batches=args.grad_batches,
+                                    reward_games=args.reward_games,
+                                    reward_max_steps=args.reward_max_steps)
         report['results'][label] = result
         print(f'{label}: {result["status"]}' + (
             f', {result["env_steps"]} steps, 0 updates, finite diagnostics, '
