@@ -52,6 +52,12 @@ def parser():
     train.add_argument('--replay-every', type=positive_int, default=4)
     train.add_argument('--replay-ratio', type=nonnegative_float,
                        help='gradient updates per env step (e.g. 0.78); overrides --replay-every')
+    train.add_argument('--memory-capacity', type=positive_int,
+                       help='replay memory capacity (default: DQNConfig default 6000)')
+    train.add_argument('--per-max-priority', choices=('scan', 'tree'), default=None,
+                       help='PER max priority strategy (default: scan)')
+    train.add_argument('--track-replay-age', action='store_true',
+                       help='track replay age in env steps and updates')
     train.add_argument('--save-every', type=positive_int, default=250)
     train.add_argument('--plot', action='store_true')
     play = commands.add_parser('play', help='launch the optional pygame GUI')
@@ -80,6 +86,12 @@ def train(args):
     config_args = {'seed': args.seed, 'arch': args.arch, 'n_step': args.n_step}
     if args.gamma is not None:
         config_args['gamma'] = args.gamma
+    if args.memory_capacity is not None:
+        config_args['memory_capacity'] = args.memory_capacity
+    if args.per_max_priority is not None:
+        config_args['per_max_priority'] = args.per_max_priority
+    if args.track_replay_age:
+        config_args['track_replay_age'] = True
     for argument, field in [('eps_schedule', 'epsilon_schedule'),
                             ('eps_start', 'epsilon_start'), ('eps_min', 'epsilon_min'),
                             ('eps_decay_steps', 'epsilon_decay_steps')]:
@@ -128,8 +140,11 @@ def train(args):
             agent.remember(transition.state, transition.action, transition.reward,
                            transition.next_state, transition.done, invalid, **options)
 
+    csv_fields = list(FIELDS)
+    if config.track_replay_age:
+        csv_fields.extend(['age_steps_mean', 'age_updates_mean'])
     with log.open('w', newline='') as handle:
-        writer = csv.DictWriter(handle, fieldnames=FIELDS)
+        writer = csv.DictWriter(handle, fieldnames=csv_fields)
         writer.writeheader()
         handle.flush()
         try:
@@ -190,7 +205,10 @@ def train(args):
                            max_tile=int(board.state.max()), steps=steps,
                            epsilon=float(agent.epsilon), beta=float(agent.beta),
                            nan_count=episode_nan, elapsed_s=time.monotonic() - started)
-                for key in ('loss', 'q_mean', 'td_abs_mean', 'is_weight_mean'):
+                stat_keys = ['loss', 'q_mean', 'td_abs_mean', 'is_weight_mean']
+                if config.track_replay_age:
+                    stat_keys.extend(['age_steps_mean', 'age_updates_mean'])
+                for key in stat_keys:
                     row[key] = mean(s.get(key) for s in episode_stats)
                 for key, aggregate in [('q_min', min), ('q_max', max)]:
                     values = [float(s[key]) for s in episode_stats if finite(s.get(key))]
@@ -221,7 +239,11 @@ def train(args):
         values = [float(s[key]) for s in all_stats if finite(s.get(key))]
         q_ranges[key] = {'min': min(values) if values else None,
                          'max': max(values) if values else None}
-    summary = dict(arch=config.arch, n_step=config.n_step, episodes=len(rows),
+    summary = dict(arch=config.arch, n_step=config.n_step,
+                   memory_capacity=config.memory_capacity,
+                   per_max_priority=config.per_max_priority,
+                   track_replay_age=config.track_replay_age,
+                   episodes=len(rows),
                    epsilon_schedule=config.epsilon_schedule,
                    epsilon_start=config.epsilon_start, epsilon_min=config.epsilon_min,
                    epsilon_decay_steps=config.epsilon_decay_steps,

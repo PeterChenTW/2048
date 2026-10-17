@@ -35,11 +35,12 @@ class DQN(nn.Module):
 
 
 class SumTree:
-    def __init__(self, capacity):
+    def __init__(self, capacity, track_max=False):
         if capacity < 1:
             raise ValueError('capacity must be positive')
         self.capacity = capacity
         self.tree = np.zeros(2 * capacity - 1)
+        self.max_tree = np.zeros(2 * capacity - 1) if track_max else None
         self.data = np.empty(capacity, dtype=object)
         self.pointer = 0
         self.size = 0
@@ -55,9 +56,25 @@ class SumTree:
             raise ValueError('priority must be finite and positive')
         change = priority - self.tree[idx]
         self.tree[idx] = priority
-        while idx != 0:
-            idx = (idx - 1) // 2
-            self.tree[idx] += change
+        pos = idx
+        while pos != 0:
+            pos = (pos - 1) // 2
+            self.tree[pos] += change
+        if self.max_tree is not None:
+            self.max_tree[idx] = priority
+            pos = idx
+            while pos != 0:
+                parent = (pos - 1) // 2
+                new_max = max(self.max_tree[2 * parent + 1], self.max_tree[2 * parent + 2])
+                if self.max_tree[parent] == new_max:
+                    break
+                self.max_tree[parent] = new_max
+                pos = parent
+
+    def max_priority(self):
+        if self.max_tree is not None:
+            return float(self.max_tree[0])
+        return float(np.max(self.tree[-self.capacity:]))
 
     def get(self, value):
         total = self.total()
@@ -97,15 +114,25 @@ class DDQNAgent:
         if (isinstance(self.config.n_step, bool) or
                 not isinstance(self.config.n_step, int) or self.config.n_step < 1):
             raise ValueError('n_step must be a positive integer')
+        if self.config.per_max_priority not in ('scan', 'tree'):
+            raise ValueError(f'unknown per_max_priority: {self.config.per_max_priority}')
         self.state_size = state_size
         self.action_size = action_size
         if self.config.seed is not None:
             torch.manual_seed(self.config.seed)
         self.rng = np.random.default_rng(self.config.seed)
-        self.memory = SumTree(self.config.memory_capacity)
+        self.memory = SumTree(self.config.memory_capacity,
+                              track_max=(self.config.per_max_priority == 'tree'))
         self.beta = self.config.per_beta_start
         self.replay_calls = 0
         self.epsilon = self.config.epsilon_start
+        self.env_step = 0
+        if self.config.track_replay_age:
+            self.step_at_insert = np.zeros(self.config.memory_capacity, dtype=np.int64)
+            self.updates_at_insert = np.zeros(self.config.memory_capacity, dtype=np.int64)
+        else:
+            self.step_at_insert = None
+            self.updates_at_insert = None
         network = DQN if self.config.arch == 'legacy' else OneHotDuelingDQN
         self.model = network()
         self.target_model = network()
@@ -123,9 +150,16 @@ class DDQNAgent:
         discount = self.config.gamma if discount is None else discount
         transition = (self._state_tensor(state).clone(), action, reward,
                       self._state_tensor(next_state).clone(), done, discount, valid_mask)
-        max_priority = np.max(self.memory.tree[-self.memory.capacity:])
+        if self.config.per_max_priority == 'tree':
+            max_priority = self.memory.max_priority()
+        else:
+            max_priority = np.max(self.memory.tree[-self.memory.capacity:])
         if max_priority == 0:
             max_priority = self.config.abs_error_upper
+        if self.config.track_replay_age:
+            slot = self.memory.pointer
+            self.step_at_insert[slot] = self.env_step
+            self.updates_at_insert[slot] = self.replay_calls
         self.memory.add(max_priority, transition)
 
     def q_values(self, state):
@@ -147,6 +181,7 @@ class DDQNAgent:
 
     def set_env_step(self, step):
         """Update linear exploration using the total completed environment steps."""
+        self.env_step = step
         if self.config.epsilon_schedule == 'linear_steps':
             fraction = min(step / self.config.epsilon_decay_steps, 1.0)
             self.epsilon = max(self.config.epsilon_min, self.config.epsilon_start -
@@ -185,6 +220,10 @@ class DDQNAgent:
                      q_max=q.max().item(), target_mean=targets.mean().item(),
                      td_abs_mean=td.abs().mean().item(), is_weight_mean=weights.mean().item(),
                      is_weight_min=weights.min().item(), beta=self.beta, epsilon=self.epsilon)
+        if self.config.track_replay_age:
+            data_idxs = [idx - self.memory.capacity + 1 for idx in idxs]
+            stats['age_steps_mean'] = float(np.mean(self.env_step - self.step_at_insert[data_idxs]))
+            stats['age_updates_mean'] = float(np.mean(self.replay_calls - self.updates_at_insert[data_idxs]))
         stats['nan'] = not all(np.isfinite(v) for v in stats.values())
         if stats['nan']:
             raise FloatingPointError(f'nonfinite replay statistics: {stats}')

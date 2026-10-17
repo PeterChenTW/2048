@@ -15,6 +15,8 @@ class DQNConfig:
     per_beta_anneal_steps: int = 100_000
     per_eps: float = 1e-5
     abs_error_upper: float = 1.0
+    per_max_priority: str = 'scan'
+    track_replay_age: bool = False
     epsilon_start: float = 0.15
     epsilon_min: float = 0.001
     epsilon_decay: float = 0.999
