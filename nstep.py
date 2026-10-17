@@ -191,10 +191,9 @@ def double_dqn_targets(
     reward_t = torch.as_tensor(rewards, device=device, dtype=dtype).reshape(batch)
     discount_t = torch.as_tensor(discounts, device=device, dtype=dtype).reshape(batch)
 
-    # Finite fill: argmax over an all-False row stays defined and is discarded.
-    neg = torch.finfo(dtype).min
-    selectable = online_q.masked_fill(~masks, neg)
-    selectable = torch.where(torch.isfinite(selectable), selectable, torch.full_like(selectable, neg))
+    # Match the legacy agent exactly: invalid actions never beat finite logits.
+    # An all-invalid row still has a defined argmax and its bootstrap is discarded.
+    selectable = online_q.masked_fill(~masks, -torch.inf)
     action = selectable.argmax(dim=1)
     chosen = target_q.gather(1, action.view(batch, 1)).squeeze(1)
 

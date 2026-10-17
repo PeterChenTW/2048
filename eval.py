@@ -42,18 +42,9 @@ def make_board(board, seed):
 
 
 def load_agent(checkpoint):
-    """Load legacy state dictionaries, including checkpoints saved on a GPU."""
-    from RL import DDQNAgent
-    agent = DDQNAgent(16, 4)
-    try:
-        agent.load(str(checkpoint))
-    except Exception:
-        # RL.load has neither map_location nor weights_only compatibility.
-        try:
-            state = torch.load(checkpoint, map_location='cpu', weights_only=True)
-        except TypeError:  # older PyTorch
-            state = torch.load(checkpoint, map_location='cpu')
-        agent.model.load_state_dict(state)
+    """Auto-detect legacy and versioned checkpoint architectures."""
+    from RL import load_checkpoint
+    agent = load_checkpoint(checkpoint)
     agent.model.cpu().eval()
     return agent
 

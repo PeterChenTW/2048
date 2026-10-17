@@ -36,6 +36,8 @@ def parser():
     train = commands.add_parser('train', help='train using the fast CPU board')
     train.add_argument('--checkpoint', default=DEFAULT_CHECKPOINT)
     train.add_argument('--from-scratch', action='store_true')
+    train.add_argument('--arch', choices=('legacy', 'onehot_dueling'), default='legacy')
+    train.add_argument('--n-step', type=positive_int, default=1)
     train.add_argument('--save-as', help='output checkpoint (default: model/dqn_revamp_<timestamp>)')
     train.add_argument('--episodes', type=positive_int, default=1_000_000)
     train.add_argument('--minutes', type=nonnegative_float)
@@ -66,9 +68,10 @@ def train(args):
     from config import DQNConfig
     from fast_board import FastBoard
     from RL import DDQNAgent
+    from nstep import NStepAccumulator
 
     torch.set_num_threads(args.threads)
-    config_args = {'seed': args.seed}
+    config_args = {'seed': args.seed, 'arch': args.arch, 'n_step': args.n_step}
     if args.gamma is not None:
         config_args['gamma'] = args.gamma
     config = DQNConfig(**config_args)
@@ -78,7 +81,13 @@ def train(args):
         torch.manual_seed(args.seed)
     agent = DDQNAgent(16, 4, config=config)
     if not args.from_scratch:
-        agent.load(args.checkpoint)
+        try:
+            agent.load(args.checkpoint)
+        except ValueError as exc:
+            if config.arch != 'legacy':
+                raise ValueError('--arch onehot_dueling requires --from-scratch or '
+                                 '--checkpoint pointing to a v2 checkpoint of the same arch') from exc
+            raise
         print(f'Loaded checkpoint: {args.checkpoint}', flush=True)
     else:
         print('Starting from scratch', flush=True)
@@ -95,6 +104,16 @@ def train(args):
     interrupted = False
     stopped_reason = None
     stop = False
+    accumulator = None
+
+    def remember_emitted(transitions):
+        for transition in transitions:
+            invalid = np.flatnonzero(~np.asarray(transition.next_mask, dtype=bool))
+            # Preserve the legacy one-step call contract, including wrappers.
+            options = {} if config.n_step == 1 else {'discount': transition.discount}
+            agent.remember(transition.state, transition.action, transition.reward,
+                           transition.next_state, transition.done, invalid, **options)
+
     with log.open('w', newline='') as handle:
         writer = csv.DictWriter(handle, fieldnames=FIELDS)
         writer.writeheader()
@@ -105,6 +124,7 @@ def train(args):
                     break
                 board = FastBoard(rng=random.Random(None if args.seed is None else args.seed + episode - 1))
                 state = torch.as_tensor(board.state, dtype=torch.float32)
+                accumulator = NStepAccumulator(config.n_step, config.gamma)
                 steps = 0
                 episode_stats = []
                 episode_nan = 0
@@ -117,11 +137,14 @@ def train(args):
                     next_state = torch.as_tensor(next_grid, dtype=torch.float32)
                     next_invalid = board.get_invalid_moves()
                     done = bool(done or len(next_invalid) == 4)
-                    agent.remember(state, action, reward, next_state, done, next_invalid)
+                    next_mask = np.ones(4, dtype=bool)
+                    next_mask[next_invalid] = False
+                    remember_emitted(accumulator.push(state, action, reward, next_state,
+                                                       done, next_mask))
                     state = next_state
                     steps += 1
                     env_steps += 1
-                    entries = min(entries + 1, config.memory_capacity)
+                    entries = agent.memory.size
                     if entries >= config.batch_size and env_steps % args.replay_every == 0:
                         try:
                             stats = agent.replay()
@@ -142,6 +165,7 @@ def train(args):
                             stop = True
                     if done or stop:
                         break
+                remember_emitted(accumulator.flush())
                 row = dict(episode=episode, score_v2=int(board.score_v2),
                            max_tile=int(board.state.max()), steps=steps,
                            epsilon=float(agent.epsilon), beta=float(agent.beta),
@@ -167,6 +191,8 @@ def train(args):
             interrupted = True
             print('Interrupted; saving checkpoint.', flush=True)
         finally:
+            if accumulator is not None:
+                remember_emitted(accumulator.flush())
             agent.save(str(output))
 
     losses = [s.get('loss') for s in all_stats]
@@ -175,7 +201,8 @@ def train(args):
         values = [float(s[key]) for s in all_stats if finite(s.get(key))]
         q_ranges[key] = {'min': min(values) if values else None,
                          'max': max(values) if values else None}
-    summary = dict(episodes=len(rows), env_steps=env_steps, updates=updates,
+    summary = dict(arch=config.arch, n_step=config.n_step, episodes=len(rows),
+                   env_steps=env_steps, updates=updates,
                    duration_s=time.monotonic() - started,
                    score_last_100_mean=mean(r['score_v2'] for r in rows[-100:]),
                    loss_first_50_mean=mean(losses[:50]), loss_last_50_mean=mean(losses[-50:]),

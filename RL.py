@@ -1,9 +1,13 @@
+from dataclasses import asdict
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from config import DQNConfig
+from dueling import OneHotDuelingDQN
+from nstep import double_dqn_targets
 
 
 class DQN(nn.Module):
@@ -82,6 +86,11 @@ class SumTree:
 class DDQNAgent:
     def __init__(self, state_size, action_size, config=None):
         self.config = config if config is not None else DQNConfig()
+        if self.config.arch not in ('legacy', 'onehot_dueling'):
+            raise ValueError(f'unknown architecture: {self.config.arch}')
+        if (isinstance(self.config.n_step, bool) or
+                not isinstance(self.config.n_step, int) or self.config.n_step < 1):
+            raise ValueError('n_step must be a positive integer')
         self.state_size = state_size
         self.action_size = action_size
         if self.config.seed is not None:
@@ -91,8 +100,9 @@ class DDQNAgent:
         self.beta = self.config.per_beta_start
         self.replay_calls = 0
         self.epsilon = self.config.epsilon_start
-        self.model = DQN()
-        self.target_model = DQN()
+        network = DQN if self.config.arch == 'legacy' else OneHotDuelingDQN
+        self.model = network()
+        self.target_model = network()
         self.update_target_model()
         self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.config.lr)
         self.losses = []
@@ -101,11 +111,12 @@ class DDQNAgent:
     def _state_tensor(state):
         return torch.as_tensor(state, dtype=torch.float32).detach().reshape(-1, 16)
 
-    def remember(self, state, action, reward, next_state, done, next_invalid_moves=()):
+    def remember(self, state, action, reward, next_state, done, next_invalid_moves=(), discount=None):
         valid_mask = np.ones(self.action_size, dtype=bool)
         valid_mask[list(next_invalid_moves)] = False
+        discount = self.config.gamma if discount is None else discount
         transition = (self._state_tensor(state).clone(), action, reward,
-                      self._state_tensor(next_state).clone(), done, valid_mask)
+                      self._state_tensor(next_state).clone(), done, discount, valid_mask)
         max_priority = np.max(self.memory.tree[-self.memory.capacity:])
         if max_priority == 0:
             max_priority = self.config.abs_error_upper
@@ -143,20 +154,17 @@ class DDQNAgent:
         probabilities = np.asarray(priorities) / total
         weights = (self.memory.size * probabilities) ** (-self.beta)
         weights /= weights.max()
-        states, actions, rewards, next_states, dones, masks = zip(*transitions)
+        states, actions, rewards, next_states, dones, discounts, masks = zip(*transitions)
         states = torch.cat(states)
         next_states = torch.cat(next_states)
         actions = torch.tensor(actions, dtype=torch.long)
         rewards = torch.tensor(rewards, dtype=torch.float32)
+        discounts = torch.tensor(discounts, dtype=torch.float32)
         dones = torch.tensor(dones, dtype=torch.bool)
         masks = torch.tensor(np.stack(masks), dtype=torch.bool)
         q = self.model(states).gather(1, actions[:, None]).squeeze(1)
-        with torch.no_grad():
-            online_next = self.model(next_states).masked_fill(~masks, -torch.inf)
-            best_actions = online_next.argmax(dim=1)
-            next_q = self.target_model(next_states).gather(1, best_actions[:, None]).squeeze(1)
-            bootstrap = torch.where(~dones & masks.any(dim=1), next_q, 0.0)
-            targets = rewards + self.config.gamma * bootstrap
+        targets = double_dqn_targets(self.model, self.target_model, rewards,
+                                     next_states, dones, masks, discounts)
         td = targets - q
         weight_tensor = torch.tensor(weights, dtype=q.dtype)
         loss = (weight_tensor * td.square()).mean()
@@ -181,8 +189,51 @@ class DDQNAgent:
         return stats
 
     def load(self, name):
-        self.model.load_state_dict(torch.load(name, map_location='cpu'))
+        payload, arch = _read_checkpoint(name)
+        if arch != self.config.arch:
+            raise ValueError(f'checkpoint architecture {arch!r} cannot load into '
+                             f'{self.config.arch!r} agent')
+        state = payload['state_dict'] if 'format' in payload else payload
+        self.model.load_state_dict(state, strict=True)
         self.update_target_model()
 
     def save(self, name):
-        torch.save(self.model.state_dict(), name)
+        state = self.model.state_dict()
+        if self.config.arch != 'legacy':
+            state = dict(format='dqn2048-v2', architecture=self.model.architecture,
+                         state_dict=state, config=asdict(self.config))
+        torch.save(state, name)
+
+
+def _read_checkpoint(path):
+    """Read CPU weights and validate the version/architecture before loading."""
+    try:
+        payload = torch.load(path, map_location='cpu', weights_only=True)
+    except TypeError:  # PyTorch versions before weights_only
+        payload = torch.load(path, map_location='cpu')
+    if not isinstance(payload, dict):
+        raise ValueError('checkpoint must contain a state dictionary or dqn2048-v2 payload')
+    if 'format' not in payload:
+        return payload, 'legacy'
+    if payload['format'] != 'dqn2048-v2':
+        raise ValueError(f"unsupported checkpoint format: {payload['format']!r}")
+    architectures = {'onehot_dueling_v1': 'onehot_dueling', 'legacy': 'legacy'}
+    architecture = payload.get('architecture')
+    if architecture not in architectures:
+        raise ValueError(f'unsupported checkpoint architecture: {architecture!r}')
+    arch = architectures[architecture]
+    if payload.get('config', {}).get('arch', arch) != arch:
+        raise ValueError('checkpoint architecture conflicts with its config')
+    return payload, arch
+
+
+def load_checkpoint(path):
+    """Build an agent for either a raw legacy checkpoint or a versioned one."""
+    payload, arch = _read_checkpoint(path)
+    config = DQNConfig(**payload.get('config', {})) if 'format' in payload else DQNConfig()
+    config.arch = arch
+    agent = DDQNAgent(16, 4, config)
+    state = payload['state_dict'] if 'format' in payload else payload
+    agent.model.load_state_dict(state, strict=True)
+    agent.update_target_model()
+    return agent

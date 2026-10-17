@@ -21,3 +21,5 @@ class DQNConfig:
     target_update_episodes: int = 50
     grad_clip: float = 1.0
     seed: int | None = None
+    arch: str = 'legacy'
+    n_step: int = 1
