@@ -31,11 +31,11 @@ class ReplayScheduler:
 
 
 class ActiveClock:
-    def __init__(self, active_s=0.0, max_gap_s=60.0, now=time.monotonic):
+    def __init__(self, active_s=0.0, max_gap_s=60.0, now=None):
         self.active_s = float(active_s)
         self.max_gap_s = float(max_gap_s)
-        self.now = now
-        self.last = now()
+        self.now = time.monotonic if now is None else now
+        self.last = self.now()
         self.skipped_s = 0.0
 
     def tick(self):
