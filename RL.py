@@ -86,6 +86,12 @@ class SumTree:
 class DDQNAgent:
     def __init__(self, state_size, action_size, config=None):
         self.config = config if config is not None else DQNConfig()
+        if self.config.epsilon_schedule not in ('update_exp', 'linear_steps'):
+            raise ValueError(f'unknown epsilon schedule: {self.config.epsilon_schedule}')
+        if (isinstance(self.config.epsilon_decay_steps, bool) or
+                not isinstance(self.config.epsilon_decay_steps, int) or
+                self.config.epsilon_decay_steps < 1):
+            raise ValueError('epsilon_decay_steps must be a positive integer')
         if self.config.arch not in ('legacy', 'onehot_dueling'):
             raise ValueError(f'unknown architecture: {self.config.arch}')
         if (isinstance(self.config.n_step, bool) or
@@ -139,6 +145,13 @@ class DDQNAgent:
         self.target_model.load_state_dict(self.model.state_dict())
         self.target_model.eval()
 
+    def set_env_step(self, step):
+        """Update linear exploration using the total completed environment steps."""
+        if self.config.epsilon_schedule == 'linear_steps':
+            fraction = min(step / self.config.epsilon_decay_steps, 1.0)
+            self.epsilon = max(self.config.epsilon_min, self.config.epsilon_start -
+                               (self.config.epsilon_start - self.config.epsilon_min) * fraction)
+
     def replay(self, batch_size=None):
         batch_size = self.config.batch_size if batch_size is None else batch_size
         if batch_size < 1 or self.memory.size == 0:
@@ -184,7 +197,8 @@ class DDQNAgent:
             self.memory.update(idx, (float(error) + self.config.per_eps) ** self.config.per_alpha)
         self.losses.append(stats['loss'])
         self.replay_calls += 1
-        self.epsilon = max(self.config.epsilon_min, self.epsilon * self.config.epsilon_decay)
+        if self.config.epsilon_schedule == 'update_exp':
+            self.epsilon = max(self.config.epsilon_min, self.epsilon * self.config.epsilon_decay)
         stats['epsilon'] = self.epsilon
         return stats
 

@@ -18,6 +18,8 @@ class DQNConfig:
     epsilon_start: float = 0.15
     epsilon_min: float = 0.001
     epsilon_decay: float = 0.999
+    epsilon_schedule: str = 'update_exp'
+    epsilon_decay_steps: int = 200_000  # Environment steps for linear_steps.
     target_update_episodes: int = 50
     grad_clip: float = 1.0
     seed: int | None = None

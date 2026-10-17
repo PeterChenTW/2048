@@ -42,6 +42,10 @@ def parser():
     train.add_argument('--episodes', type=positive_int, default=1_000_000)
     train.add_argument('--minutes', type=nonnegative_float)
     train.add_argument('--gamma', type=nonnegative_float)
+    train.add_argument('--eps-schedule', choices=('update_exp', 'linear_steps'))
+    train.add_argument('--eps-start', type=nonnegative_float)
+    train.add_argument('--eps-min', type=nonnegative_float)
+    train.add_argument('--eps-decay-steps', type=positive_int)
     train.add_argument('--seed', type=int)
     train.add_argument('--log', help='episode CSV (default: results/train_<output name>.csv)')
     train.add_argument('--threads', type=positive_int, default=1)
@@ -74,6 +78,12 @@ def train(args):
     config_args = {'seed': args.seed, 'arch': args.arch, 'n_step': args.n_step}
     if args.gamma is not None:
         config_args['gamma'] = args.gamma
+    for argument, field in [('eps_schedule', 'epsilon_schedule'),
+                            ('eps_start', 'epsilon_start'), ('eps_min', 'epsilon_min'),
+                            ('eps_decay_steps', 'epsilon_decay_steps')]:
+        value = getattr(args, argument)
+        if value is not None:
+            config_args[field] = value
     config = DQNConfig(**config_args)
     if args.seed is not None:
         random.seed(args.seed)
@@ -144,6 +154,7 @@ def train(args):
                     state = next_state
                     steps += 1
                     env_steps += 1
+                    agent.set_env_step(env_steps)
                     entries = agent.memory.size
                     if entries >= config.batch_size and env_steps % args.replay_every == 0:
                         try:
@@ -202,6 +213,9 @@ def train(args):
         q_ranges[key] = {'min': min(values) if values else None,
                          'max': max(values) if values else None}
     summary = dict(arch=config.arch, n_step=config.n_step, episodes=len(rows),
+                   epsilon_schedule=config.epsilon_schedule,
+                   epsilon_start=config.epsilon_start, epsilon_min=config.epsilon_min,
+                   epsilon_decay_steps=config.epsilon_decay_steps,
                    env_steps=env_steps, updates=updates,
                    duration_s=time.monotonic() - started,
                    score_last_100_mean=mean(r['score_v2'] for r in rows[-100:]),
