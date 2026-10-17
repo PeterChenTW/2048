@@ -38,6 +38,20 @@ def positive_float(value):
     return number
 
 
+def nonnegative_int(value):
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError('must be nonnegative')
+    return number
+
+
+def decay_factor(value):
+    number = float(value)
+    if not math.isfinite(number) or number <= 0 or number > 1:
+        raise argparse.ArgumentTypeError('must be in (0, 1]')
+    return number
+
+
 def fraction(value):
     number = nonnegative_float(value)
     if number > 1:
@@ -67,9 +81,11 @@ def parser():
     train.add_argument('--gamma', type=nonnegative_float)
     train.add_argument('--reward-mode', choices=('log', 'linear'), default=None)
     train.add_argument('--reward-scale', type=positive_float, default=None)
-    train.add_argument('--eps-schedule', choices=('update_exp', 'linear_steps'))
+    train.add_argument('--eps-schedule', choices=('update_exp', 'linear_steps', 'episode_exp'))
     train.add_argument('--eps-start', type=nonnegative_float)
     train.add_argument('--eps-min', type=nonnegative_float)
+    train.add_argument('--eps-decay', type=decay_factor, default=None)
+    train.add_argument('--eps-decay-start-episode', type=nonnegative_int, default=None)
     train.add_argument('--eps-decay-steps', type=positive_int)
     train.add_argument('--seed', type=int)
     train.add_argument('--log', help='episode CSV (default: results/train_<output name>.csv)')
@@ -125,6 +141,8 @@ def train(args):
         config_args['reward_scale'] = args.reward_scale
     for argument, field in [('eps_schedule', 'epsilon_schedule'),
                             ('eps_start', 'epsilon_start'), ('eps_min', 'epsilon_min'),
+                            ('eps_decay', 'epsilon_decay'),
+                            ('eps_decay_start_episode', 'epsilon_decay_start_episode'),
                             ('eps_decay_steps', 'epsilon_decay_steps')]:
         value = getattr(args, argument)
         if value is not None:
@@ -313,6 +331,7 @@ def train(args):
                 writer.writerow({k: v if not isinstance(v, float) or finite(v) else None for k, v in row.items()})
                 handle.flush()
                 rows.append(row)
+                agent.end_episode(episode)
                 if episode % config.target_update_episodes == 0:
                     agent.update_target_model()
                 if episode % args.save_every == 0:
@@ -355,6 +374,9 @@ def train(args):
                    q_stats_ranges=q_ranges, nan_count=nan_count, stopped_reason=stopped_reason,
                    interrupted=interrupted,
                    checkpoint=str(output), loaded_checkpoint=None if args.from_scratch else args.checkpoint)
+    if config.epsilon_schedule == 'episode_exp':
+        summary.update(epsilon_decay=config.epsilon_decay,
+                       epsilon_decay_start_episode=config.epsilon_decay_start_episode)
     if restart_enabled:
         fresh_rows = [r for r in rows if r['start'] == 'fresh']
         summary.update(fresh_episodes=len(fresh_rows), restart_episodes=len(rows) - len(fresh_rows),
