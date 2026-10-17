@@ -14,6 +14,7 @@ DEFAULT_CHECKPOINT = 'model/nn_prioritize_replay_no_invalid_gamma_099_2'
 FIELDS = ['episode', 'score_v2', 'max_tile', 'steps', 'epsilon', 'beta',
           'loss', 'q_mean', 'q_min', 'q_max', 'td_abs_mean', 'is_weight_mean',
           'nan_count', 'elapsed_s']
+_ACTIVE_CLOCK_HOOK = None
 
 
 def positive_int(value):
@@ -58,6 +59,10 @@ def parser():
     train.add_argument('--save-as', help='output checkpoint (default: model/dqn_revamp_<timestamp>)')
     train.add_argument('--episodes', type=positive_int, default=1_000_000)
     train.add_argument('--minutes', type=nonnegative_float)
+    train.add_argument('--budget-clock', choices=('wall', 'active'), default='wall',
+                       help="clock used for --minutes budget ('wall' or 'active'; default: wall)")
+    train.add_argument('--active-max-gap-s', type=positive_float, default=60.0,
+                       help='maximum gap in seconds counted as active time (default: 60.0)')
     train.add_argument('--gamma', type=nonnegative_float)
     train.add_argument('--reward-mode', choices=('log', 'linear'), default=None)
     train.add_argument('--reward-scale', type=positive_float, default=None)
@@ -148,6 +153,17 @@ def train(args):
     log.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     deadline = started + args.minutes * 60 if args.minutes is not None else math.inf
+    active_budget = args.minutes * 60 if args.minutes is not None else None
+    active_clock = None
+    if args.budget_clock == 'active':
+        from step4_utils import ActiveClock
+        active_clock = _ACTIVE_CLOCK_HOOK(args) if _ACTIVE_CLOCK_HOOK is not None else ActiveClock(max_gap_s=args.active_max_gap_s)
+
+    def is_time_up():
+        if active_clock is not None:
+            return active_budget is not None and active_clock.active_s >= active_budget
+        return time.monotonic() >= deadline
+
     env_steps = updates = entries = nan_count = 0
     rows, all_stats = [], []
     interrupted = False
@@ -183,7 +199,9 @@ def train(args):
         handle.flush()
         try:
             for episode in range(1, args.episodes + 1):
-                if time.monotonic() >= deadline:
+                if active_clock is not None:
+                    active_clock.tick()
+                if is_time_up():
                     break
                 if restart_enabled:
                     board_rng = random.Random(None if args.seed is None else args.seed + episode - 1)
@@ -204,7 +222,7 @@ def train(args):
                 episode_nan = 0
                 while True:
                     invalid = board.get_invalid_moves()
-                    if len(invalid) == 4 or time.monotonic() >= deadline:
+                    if len(invalid) == 4 or is_time_up():
                         break
                     action = agent.act(state, invalid)
                     if restart_enabled:
@@ -256,6 +274,8 @@ def train(args):
                             print(f'Non-finite replay at episode {episode}, step {env_steps}: {stats}', flush=True)
                             stop = True
                             break
+                    if active_clock is not None:
+                        active_clock.tick()
                     if done or stop:
                         break
                 remember_emitted(accumulator.flush())
@@ -329,6 +349,10 @@ def train(args):
                        pool_size_final=len(pool), pool_adds=pool_adds,
                        late_stage_fraction=late_steps / env_steps if env_steps else 0.0,
                        score_last_100_fresh_mean=mean(r['score_v2'] for r in fresh_rows[-100:]))
+    if args.budget_clock == 'active':
+        summary.update(budget_clock='active',
+                       active_s=active_clock.active_s,
+                       skipped_s=active_clock.skipped_s)
     serialized = json.dumps(summary, indent=2, allow_nan=False)
     log.with_suffix('.json').write_text(serialized + '\n')
     print(serialized, flush=True)
