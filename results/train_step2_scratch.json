@@ -1,0 +1,27 @@
+{
+  "episodes": 2279,
+  "env_steps": 369016,
+  "updates": 92223,
+  "duration_s": 900.116885885,
+  "score_last_100_mean": 2128.56,
+  "loss_first_50_mean": 0.036853519305586814,
+  "loss_last_50_mean": 0.008897894972469657,
+  "q_stats_ranges": {
+    "q_mean": {
+      "min": -0.05965445935726166,
+      "max": 5.491208076477051
+    },
+    "q_min": {
+      "min": -4.275266647338867,
+      "max": 4.0267229080200195
+    },
+    "q_max": {
+      "min": 0.2822604775428772,
+      "max": 12.377226829528809
+    }
+  },
+  "nan_count": 0,
+  "interrupted": false,
+  "checkpoint": "model/step2_scratch",
+  "loaded_checkpoint": null
+}

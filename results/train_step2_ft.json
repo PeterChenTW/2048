@@ -1,0 +1,27 @@
+{
+  "episodes": 1387,
+  "env_steps": 331420,
+  "updates": 82824,
+  "duration_s": 900.1033694770001,
+  "score_last_100_mean": 3463.08,
+  "loss_first_50_mean": 0.009103443294297903,
+  "loss_last_50_mean": 0.008136365106329322,
+  "q_stats_ranges": {
+    "q_mean": {
+      "min": 1.6434643268585205,
+      "max": 4.461390972137451
+    },
+    "q_min": {
+      "min": -5.470225811004639,
+      "max": 2.645249843597412
+    },
+    "q_max": {
+      "min": 2.081404209136963,
+      "max": 11.993067741394043
+    }
+  },
+  "nan_count": 0,
+  "interrupted": false,
+  "checkpoint": "model/step2_ft",
+  "loaded_checkpoint": "model/nn_prioritize_replay_no_invalid_gamma_099_2"
+}
