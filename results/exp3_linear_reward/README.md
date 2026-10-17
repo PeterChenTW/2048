@@ -27,3 +27,12 @@ W1 結果：lin/.99 兩個 seed 的 eval mean 是 2,328（s101）和 2,424（s20
 **驗證方法（W4 後，不新增實驗組）**：排程在 W4 結束、W4 publish 前，會自動執行 `tools/analyze_q_td.py`（事後分析工具，只讀 checkpoint，不改訓練程式）。它對 BASE、E3-LOG997、E3-LIN99、E3-LIN997 兩個 seed 的終點 checkpoint 各抽約 4,000 個 ε-greedy 狀態，算出 Q、max Q、double-DQN target、TD、|TD|、reward 的分位數（p1–p99）、|TD|>1 的比例，以及梯度範數分位數和超過 clip 1.0 的比例。結果寫進本目錄的 `q_td_analysis.md`／`q_td_analysis.json`。注意：checkpoint 只有一個網路，target net 是用 online net 代替，所以 TD 是近似值。
 
 判讀方式：linear 跟 log 的 |TD| 分位數和梯度被 clip 的比例差很多（例如差一個數量級），就支持「同一 lr／clip 不適配」這個解釋；差不多的話，這個解釋就不成立，要找別的原因（例如 linear 回報偏重大額合併、短期訊號稀疏）。
+
+**W1 初步結果（10-18 01:00 台北時間，只有 BASE 跟 lin/.99；詳見 `q_td_W1_preliminary.md`）**：每個 checkpoint 抽 4,000 個狀態，數字依序是 s101／s202。
+
+| | Q p50 | \|TD\| p95 | \|TD\|>1 | 梯度範數 p50 | 梯度被 clip（>1.0）比例 |
+|---|---|---|---|---|---|
+| log/.99（BASE） | 5.33／5.11 | 0.79／0.89 | 2.8%／3.8% | 6.63／6.49 | 100%／100% |
+| lin/.99 | 1.85／1.77 | 0.43／0.55 | 1.0%／1.2% | 1.28／1.03 | 70%／65% |
+
+這些數字**不支持**「linear 的尺度變大」這個方向：linear 的 Q、TD、梯度範數都比較小。另外 log 的梯度範數中位數約 6.5，每一批都被 clip 到 1.0，代表 BASE 的實際更新量其實一直被 clip 壓住。linear 只有約 2/3 的批次被 clip，兩者的有效步長不一樣，這點仍然可能跟成績差距有關，但方向跟原本的推測相反。限制：兩組的策略不同，抽到的狀態分布也不同；target net 用 online net 代替；梯度是均勻抽樣、未加權的 MSE，跟訓練時的 PER 加權梯度不一樣。所以這只是線索，不是因果結論。W4 結束後會用同一個工具把 log/.997、lin/.997 也一起比，再下判斷。
