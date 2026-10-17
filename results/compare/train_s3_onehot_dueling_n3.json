@@ -1,0 +1,34 @@
+{
+  "arch": "onehot_dueling",
+  "n_step": 3,
+  "episodes": 1125,
+  "epsilon_schedule": "linear_steps",
+  "epsilon_start": 0.15,
+  "epsilon_min": 0.02,
+  "epsilon_decay_steps": 150000,
+  "env_steps": 163652,
+  "updates": 40881,
+  "duration_s": 900.0784469079997,
+  "score_last_100_mean": 1540.84,
+  "loss_first_50_mean": 0.02713495947420597,
+  "loss_last_50_mean": 0.034736521914601325,
+  "q_stats_ranges": {
+    "q_mean": {
+      "min": 0.016824442893266678,
+      "max": 5.585075378417969
+    },
+    "q_min": {
+      "min": -4.924698829650879,
+      "max": 2.9892725944519043
+    },
+    "q_max": {
+      "min": 0.03974337503314018,
+      "max": 8.24134349822998
+    }
+  },
+  "nan_count": 0,
+  "stopped_reason": null,
+  "interrupted": false,
+  "checkpoint": "model/cmp_s3_onehot_dueling_n3",
+  "loaded_checkpoint": null
+}

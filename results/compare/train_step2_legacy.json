@@ -1,0 +1,34 @@
+{
+  "arch": "legacy",
+  "n_step": 1,
+  "episodes": 2199,
+  "epsilon_schedule": "linear_steps",
+  "epsilon_start": 0.15,
+  "epsilon_min": 0.02,
+  "epsilon_decay_steps": 150000,
+  "env_steps": 318928,
+  "updates": 79701,
+  "duration_s": 900.121031229,
+  "score_last_100_mean": 1778.68,
+  "loss_first_50_mean": 0.010866473019123078,
+  "loss_last_50_mean": 0.007676495090126991,
+  "q_stats_ranges": {
+    "q_mean": {
+      "min": -0.03118348866701126,
+      "max": 5.271892547607422
+    },
+    "q_min": {
+      "min": -4.256228923797607,
+      "max": 3.893495559692383
+    },
+    "q_max": {
+      "min": 0.22398227453231812,
+      "max": 10.865142822265625
+    }
+  },
+  "nan_count": 0,
+  "stopped_reason": null,
+  "interrupted": false,
+  "checkpoint": "model/cmp_step2_legacy",
+  "loaded_checkpoint": null
+}

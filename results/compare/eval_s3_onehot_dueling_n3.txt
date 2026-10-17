@@ -1,0 +1,21 @@
+{
+  "games": 100,
+  "policy": "greedy",
+  "board": "fast",
+  "mean": 1575,
+  "median": 1432.0,
+  "max": 3280,
+  "max_tile_distribution": {
+    "32": 6,
+    "64": 18,
+    "128": 47,
+    "256": 29
+  },
+  "reach_rates": {
+    "512": 0.0,
+    "1024": 0.0,
+    "2048": 0.0,
+    "4096": 0.0
+  },
+  "elapsed_seconds": 8.21694603800006
+}

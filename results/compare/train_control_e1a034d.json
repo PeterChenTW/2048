@@ -1,0 +1,13 @@
+{
+  "arm": "control_e1a034d",
+  "episodes": 1169,
+  "env_steps": 171216,
+  "updates": 133120,
+  "duration_s": 900.6687159880003,
+  "score_last_100_mean": 1577.64,
+  "loss_first_50_mean": 0.010145671881456531,
+  "loss_last_50_mean": 0.01085862432701654,
+  "nan_count": 0,
+  "checkpoint": "/workspace/rl2048-review/wt-s3/model/cmp_control_e1a034d",
+  "seed": 101
+}

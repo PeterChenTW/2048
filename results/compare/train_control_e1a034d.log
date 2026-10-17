@@ -1,0 +1,24 @@
+episode 100 score 1104 eps 0.1500 loss None
+episode 200 score 400 eps 0.1397 loss 0.006860430060172069
+episode 300 score 924 eps 0.1264 loss 0.012189362933103354
+episode 400 score 1248 eps 0.1144 loss 0.003604272989518459
+episode 500 score 372 eps 0.1035 loss 0.009820410495529869
+episode 600 score 1416 eps 0.0936 loss 0.003021942020370011
+episode 700 score 3096 eps 0.0847 loss 0.020133901482649597
+episode 800 score 1836 eps 0.0767 loss 0.027118799972297936
+episode 900 score 2484 eps 0.0694 loss 0.01769046473660052
+episode 1000 score 1004 eps 0.0628 loss 0.005723975691893868
+episode 1100 score 2424 eps 0.0568 loss 0.01609927153721724
+{
+  "arm": "control_e1a034d",
+  "episodes": 1169,
+  "env_steps": 171216,
+  "updates": 133120,
+  "duration_s": 900.6687159880003,
+  "score_last_100_mean": 1577.64,
+  "loss_first_50_mean": 0.010145671881456531,
+  "loss_last_50_mean": 0.01085862432701654,
+  "nan_count": 0,
+  "checkpoint": "/workspace/rl2048-review/wt-s3/model/cmp_control_e1a034d",
+  "seed": 101
+}

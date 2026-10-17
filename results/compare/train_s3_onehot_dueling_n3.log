@@ -1,0 +1,91 @@
+Starting from scratch
+Episode 20: score=1572 steps=156 epsilon=0.14760 loss=0.009901373969534269
+Episode 40: score=860 steps=111 epsilon=0.14556 loss=0.008704931423481967
+Episode 60: score=1520 steps=153 epsilon=0.14363 loss=0.014535919836673298
+Episode 80: score=1252 steps=134 epsilon=0.14112 loss=0.011500061630751148
+Episode 100: score=2640 steps=226 epsilon=0.13890 loss=0.009768385709704537
+Episode 120: score=1136 steps=122 epsilon=0.13606 loss=0.010583812572682897
+Episode 140: score=668 steps=92 epsilon=0.13358 loss=0.008769047487041225
+Episode 160: score=1392 steps=148 epsilon=0.13115 loss=0.011715072270080045
+Episode 180: score=1140 steps=116 epsilon=0.12886 loss=0.010234364083614843
+Episode 200: score=2032 steps=170 epsilon=0.12629 loss=0.010052610543512162
+Episode 220: score=964 steps=101 epsilon=0.12398 loss=0.010140666253864766
+Episode 240: score=1444 steps=151 epsilon=0.12125 loss=0.01084580765056767
+Episode 260: score=2932 steps=245 epsilon=0.11857 loss=0.011691553907499451
+Episode 280: score=984 steps=121 epsilon=0.11639 loss=0.01268114522099495
+Episode 300: score=884 steps=107 epsilon=0.11366 loss=0.010789686727716966
+Episode 320: score=1040 steps=125 epsilon=0.11105 loss=0.013899242235047201
+Episode 340: score=1396 steps=143 epsilon=0.10850 loss=0.015221343259327114
+Episode 360: score=604 steps=82 epsilon=0.10597 loss=0.01528911041095853
+Episode 380: score=1336 steps=136 epsilon=0.10348 loss=0.017506284748806673
+Episode 400: score=1440 steps=150 epsilon=0.10088 loss=0.014763812987918132
+Episode 420: score=672 steps=86 epsilon=0.09850 loss=0.01712743059865066
+Episode 440: score=1516 steps=160 epsilon=0.09600 loss=0.016352237423416228
+Episode 460: score=1376 steps=138 epsilon=0.09327 loss=0.01764112886573587
+Episode 480: score=1240 steps=127 epsilon=0.09080 loss=0.01651722425594926
+Episode 500: score=708 steps=91 epsilon=0.08838 loss=0.017983854626831802
+Episode 520: score=1200 steps=124 epsilon=0.08594 loss=0.018610687836283637
+Episode 540: score=1332 steps=139 epsilon=0.08294 loss=0.013718569238803217
+Episode 560: score=372 steps=61 epsilon=0.08032 loss=0.020563885860610753
+Episode 580: score=628 steps=81 epsilon=0.07770 loss=0.021059507969766855
+Episode 600: score=1356 steps=141 epsilon=0.07517 loss=0.01774314170969384
+Episode 620: score=2900 steps=238 epsilon=0.07273 loss=0.02454301597705732
+Episode 640: score=2992 steps=250 epsilon=0.07026 loss=0.01897316800069905
+Episode 660: score=1324 steps=136 epsilon=0.06786 loss=0.023715421009589645
+Episode 680: score=780 steps=100 epsilon=0.06510 loss=0.022883794475346803
+Episode 700: score=1580 steps=158 epsilon=0.06227 loss=0.020174130869026367
+Episode 720: score=2848 steps=240 epsilon=0.05944 loss=0.021644983673468232
+Episode 740: score=1260 steps=127 epsilon=0.05717 loss=0.024547603621613234
+Episode 760: score=2476 steps=211 epsilon=0.05474 loss=0.02865008609193676
+Episode 780: score=796 steps=100 epsilon=0.05212 loss=0.026033728569746017
+Episode 800: score=2232 steps=190 epsilon=0.04955 loss=0.024962173755023073
+Episode 820: score=1540 steps=155 epsilon=0.04727 loss=0.025546591227444317
+Episode 840: score=1500 steps=159 epsilon=0.04471 loss=0.024644512898073748
+Episode 860: score=1564 steps=164 epsilon=0.04192 loss=0.03403331936768642
+Episode 880: score=1388 steps=145 epsilon=0.03945 loss=0.022983084122339886
+Episode 900: score=1348 steps=139 epsilon=0.03654 loss=0.03453990833035537
+Episode 920: score=1032 steps=112 epsilon=0.03416 loss=0.028321236638086184
+Episode 940: score=1352 steps=139 epsilon=0.03188 loss=0.024962472383465086
+Episode 960: score=2696 steps=227 epsilon=0.02924 loss=0.04150697103652515
+Episode 980: score=1348 steps=138 epsilon=0.02691 loss=0.026010756928692844
+Episode 1000: score=624 steps=86 epsilon=0.02439 loss=0.037032974883913994
+Episode 1020: score=1884 steps=181 epsilon=0.02186 loss=0.030136645047201052
+Episode 1040: score=752 steps=101 epsilon=0.02000 loss=0.03655650451779366
+Episode 1060: score=1188 steps=129 epsilon=0.02000 loss=0.034952217305544764
+Episode 1080: score=1360 steps=142 epsilon=0.02000 loss=0.02729004573646105
+Episode 1100: score=956 steps=112 epsilon=0.02000 loss=0.029352675824026977
+Episode 1120: score=596 steps=80 epsilon=0.02000 loss=0.040889593213796614
+{
+  "arch": "onehot_dueling",
+  "n_step": 3,
+  "episodes": 1125,
+  "epsilon_schedule": "linear_steps",
+  "epsilon_start": 0.15,
+  "epsilon_min": 0.02,
+  "epsilon_decay_steps": 150000,
+  "env_steps": 163652,
+  "updates": 40881,
+  "duration_s": 900.0784469079997,
+  "score_last_100_mean": 1540.84,
+  "loss_first_50_mean": 0.02713495947420597,
+  "loss_last_50_mean": 0.034736521914601325,
+  "q_stats_ranges": {
+    "q_mean": {
+      "min": 0.016824442893266678,
+      "max": 5.585075378417969
+    },
+    "q_min": {
+      "min": -4.924698829650879,
+      "max": 2.9892725944519043
+    },
+    "q_max": {
+      "min": 0.03974337503314018,
+      "max": 8.24134349822998
+    }
+  },
+  "nan_count": 0,
+  "stopped_reason": null,
+  "interrupted": false,
+  "checkpoint": "model/cmp_s3_onehot_dueling_n3",
+  "loaded_checkpoint": null
+}

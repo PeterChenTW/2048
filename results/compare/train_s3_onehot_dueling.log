@@ -1,0 +1,81 @@
+Starting from scratch
+Episode 20: score=788 steps=103 epsilon=0.14775 loss=0.0019157646177336573
+Episode 40: score=2152 steps=203 epsilon=0.14540 loss=0.0012821430790091993
+Episode 60: score=1332 steps=138 epsilon=0.14267 loss=0.00364162797204164
+Episode 80: score=780 steps=96 epsilon=0.14012 loss=0.00202902959426865
+Episode 100: score=904 steps=112 epsilon=0.13737 loss=0.0016939848470168986
+Episode 120: score=2292 steps=189 epsilon=0.13447 loss=0.002375475422013551
+Episode 140: score=3100 steps=256 epsilon=0.13151 loss=0.002179112578232889
+Episode 160: score=2804 steps=228 epsilon=0.12873 loss=0.002236289791190964
+Episode 180: score=1140 steps=124 epsilon=0.12607 loss=0.0016200631301129056
+Episode 200: score=1256 steps=126 epsilon=0.12328 loss=0.0020513445724645862
+Episode 220: score=2356 steps=198 epsilon=0.12034 loss=0.0019775164616294204
+Episode 240: score=1832 steps=178 epsilon=0.11772 loss=0.0018047337434836663
+Episode 260: score=3996 steps=307 epsilon=0.11469 loss=0.0027560959071187036
+Episode 280: score=1456 steps=152 epsilon=0.11202 loss=0.002355226906825249
+Episode 300: score=1468 steps=155 epsilon=0.10884 loss=0.0024159288425978863
+Episode 320: score=708 steps=93 epsilon=0.10572 loss=0.002915154274492322
+Episode 340: score=2316 steps=193 epsilon=0.10276 loss=0.00213165709401994
+Episode 360: score=628 steps=87 epsilon=0.09969 loss=0.0024081565262306305
+Episode 380: score=2964 steps=239 epsilon=0.09686 loss=0.0022628003360419457
+Episode 400: score=1484 steps=156 epsilon=0.09394 loss=0.0023271303850775347
+Episode 420: score=1416 steps=144 epsilon=0.09104 loss=0.0017545594132065566
+Episode 440: score=2348 steps=200 epsilon=0.08834 loss=0.002367950528860092
+Episode 460: score=1104 steps=114 epsilon=0.08559 loss=0.002375044803745274
+Episode 480: score=2264 steps=184 epsilon=0.08239 loss=0.0024848840662541434
+Episode 500: score=3092 steps=248 epsilon=0.07940 loss=0.0019939458823852963
+Episode 520: score=1644 steps=168 epsilon=0.07627 loss=0.002174448657093481
+Episode 540: score=2344 steps=197 epsilon=0.07350 loss=0.0022760318658713785
+Episode 560: score=1664 steps=169 epsilon=0.07060 loss=0.002718538467195772
+Episode 580: score=1344 steps=135 epsilon=0.06754 loss=0.0026301670843488813
+Episode 600: score=2728 steps=230 epsilon=0.06456 loss=0.0025129842678117647
+Episode 620: score=1472 steps=144 epsilon=0.06165 loss=0.0025235400130946394
+Episode 640: score=1384 steps=147 epsilon=0.05842 loss=0.0021275804028846323
+Episode 660: score=1644 steps=167 epsilon=0.05520 loss=0.0025941752565337255
+Episode 680: score=2332 steps=193 epsilon=0.05199 loss=0.002285667727178685
+Episode 700: score=1604 steps=159 epsilon=0.04892 loss=0.002039788060938008
+Episode 720: score=1420 steps=152 epsilon=0.04606 loss=0.002929489086933532
+Episode 740: score=1572 steps=161 epsilon=0.04357 loss=0.002993071608943865
+Episode 760: score=1508 steps=154 epsilon=0.04013 loss=0.0023860753127863924
+Episode 780: score=3060 steps=250 epsilon=0.03704 loss=0.00229410998496948
+Episode 800: score=1420 steps=146 epsilon=0.03403 loss=0.0026296198736196637
+Episode 820: score=1432 steps=148 epsilon=0.03080 loss=0.002465956359849991
+Episode 840: score=1572 steps=165 epsilon=0.02767 loss=0.0022459684746203626
+Episode 860: score=3080 steps=254 epsilon=0.02433 loss=0.0028976432031413424
+Episode 880: score=2752 steps=226 epsilon=0.02117 loss=0.0020265305138309486
+Episode 900: score=1428 steps=146 epsilon=0.02000 loss=0.0022491755568095156
+Episode 920: score=1064 steps=116 epsilon=0.02000 loss=0.003210894446338302
+{
+  "arch": "onehot_dueling",
+  "n_step": 1,
+  "episodes": 928,
+  "epsilon_schedule": "linear_steps",
+  "epsilon_start": 0.15,
+  "epsilon_min": 0.02,
+  "epsilon_decay_steps": 150000,
+  "env_steps": 156760,
+  "updates": 39159,
+  "duration_s": 900.1363421279998,
+  "score_last_100_mean": 1970.04,
+  "loss_first_50_mean": 0.005174061739817262,
+  "loss_last_50_mean": 0.0029823269846383483,
+  "q_stats_ranges": {
+    "q_mean": {
+      "min": 0.018072575330734253,
+      "max": 2.450310707092285
+    },
+    "q_min": {
+      "min": -0.6536542773246765,
+      "max": 1.9964189529418945
+    },
+    "q_max": {
+      "min": 0.03974337503314018,
+      "max": 3.581486701965332
+    }
+  },
+  "nan_count": 0,
+  "stopped_reason": null,
+  "interrupted": false,
+  "checkpoint": "model/cmp_s3_onehot_dueling",
+  "loaded_checkpoint": null
+}
