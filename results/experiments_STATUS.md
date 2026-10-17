@@ -1,8 +1,8 @@
-# 實驗排程狀態（自動更新：2026-10-18 02:31 台北時間）
+# 實驗排程狀態（自動更新：2026-10-18 04:07 台北時間）
 
 ## 尚未回報的里程碑
-- [2026-10-18 02:31] W2（E1-AS + E2-S3）完成
-- [2026-10-18 02:31] #1 afterstate 判定：不過（s101: 不過（mean 6303 vs 5249（×1.20），≥1024 13% vs 8%）；s202: 過（mean 6580 vs 3095（×2.13），≥1024 19% vs 0%））
+- [2026-10-18 04:07] W3（E2-L3 + E2-L1）完成
+- [2026-10-18 04:07] #2 容量×n-step 判定：不過（s101: 不過（L3/S3 ×0.93，≥1024 0% vs 0%，差中差 +2798）；s202: 不過（L3/S3 ×1.00，≥1024 0% vs 0%，差中差 +819））
 
 （轉報後執行 `python3 /workspace/rl2048-review/experiments/status.py --ack` 清空此區塊。）
 
@@ -21,7 +21,7 @@
 | 實驗 | 判定 | 明細 |
 |---|---|---|
 | #1 afterstate | 不過 | s101: 不過（mean 6303 vs 5249（×1.20），≥1024 13% vs 8%）；s202: 過（mean 6580 vs 3095（×2.13），≥1024 19% vs 0%） |
-| #2 容量×n-step | 待資料 | s101: 待資料；s202: 待資料 |
+| #2 容量×n-step | 不過 | s101: 不過（L3/S3 ×0.93，≥1024 0% vs 0%，差中差 +2798）；s202: 不過（L3/S3 ×1.00，≥1024 0% vs 0%，差中差 +819） |
 | #3 linear×γ | 待資料 | s101: 待資料；s202: 待資料 |
 | #4 conv2x2 | 待資料 | s101: 待資料；s202: 待資料 |
 | #5 restart pool | 待資料 | s101: 待資料；s202: 待資料 |
@@ -46,14 +46,14 @@
 | E2-S3_s101 | done | 1991 | 1832 | 0% | 0% | 0% | 520432 | 234136 | 43.4 | 0 |
 | E2-S3_s202 | done | 1844 | 1710 | 1% | 0% | 0% | 508294 | 228674 | 42.3 | 0 |
 
-### W3：E2-L3 + E2-L1 — 未開始
+### W3：E2-L3 + E2-L1 — 完成
 
 | job | 狀態 | mean | median | ≥512 | ≥1024 | ≥2048 | env steps | updates | updates/s | NaN |
 |---|---|---|---|---|---|---|---|---|---|---|
-| E2-L3_s101 | pending | | | | | | | | | |
-| E2-L3_s202 | pending | | | | | | | | | |
-| E2-L1_s101 | pending | | | | | | | | | |
-| E2-L1_s202 | pending | | | | | | | | | |
+| E2-L3_s101 | done | 1858 | 1642 | 2% | 0% | 0% | 517045 | 232612 | 43.1 | 0 |
+| E2-L3_s202 | done | 1845 | 1592 | 3% | 0% | 0% | 504289 | 226872 | 42.0 | 0 |
+| E2-L1_s101 | done | 2317 | 2316 | 5% | 0% | 0% | 507107 | 228141 | 42.2 | 0 |
+| E2-L1_s202 | done | 2277 | 2184 | 7% | 0% | 0% | 511403 | 230074 | 42.6 | 0 |
 
 ### W4：E3-LOG997 + E3-LIN997 — 未開始
 
@@ -75,12 +75,12 @@
 
 ## schedule_run.log 最後幾行
 ```
-[2026-10-18 01:00:19 Taipei] W2 begin: ['E1-AS', 'E2-S3']
-[2026-10-18 01:00:19 Taipei] W2 E1-AS_s101: still running from a previous scheduler, waiting
-[2026-10-18 02:31:13 Taipei] W2 E1-AS_s101: finished by previous scheduler
-[2026-10-18 02:31:13 Taipei] W2 E1-AS_s202: still running from a previous scheduler, waiting
-[2026-10-18 02:31:43 Taipei] W2 E1-AS_s202: finished by previous scheduler
-[2026-10-18 02:31:43 Taipei] W2 E2-S3_s101: eval.json exists, skip
-[2026-10-18 02:31:43 Taipei] W2 E2-S3_s202: eval.json exists, skip
-[2026-10-18 02:31:43 Taipei] W2 end
+[2026-10-18 02:31:48 Taipei] W3 start E2-L3_s202 (train+eval)
+[2026-10-18 02:31:48 Taipei] W3 start E2-L1_s101 (train+eval)
+[2026-10-18 02:31:48 Taipei] W3 start E2-L1_s202 (train+eval)
+[2026-10-18 04:07:53 Taipei] W3 done E2-L3_s101 rc=0
+[2026-10-18 04:07:53 Taipei] W3 done E2-L3_s202 rc=0
+[2026-10-18 04:07:54 Taipei] W3 done E2-L1_s101 rc=0
+[2026-10-18 04:07:54 Taipei] W3 done E2-L1_s202 rc=0
+[2026-10-18 04:07:54 Taipei] W3 end
 ```
