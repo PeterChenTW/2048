@@ -1,3 +1,5 @@
 __pycache__/RL.cpython-39.pyc
 __pycache__/game_2048.cpython-39.pyc
 .venv/*
+__pycache__/
+.pytest_cache/
