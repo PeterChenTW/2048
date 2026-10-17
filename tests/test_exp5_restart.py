@@ -118,7 +118,8 @@ def test_off_matches_original_seeded_training(tmp_path, monkeypatch, options):
                       '--threads', '1', '--save-as', str(tmp_path / 'off.pt'),
                       '--log', str(log), *options]) == 0
     rows, summary = read_training(log)
-    assert set(summary) == BASELINE_KEYS
+    # Other experiment lanes add summary metadata; retain every original key.
+    assert BASELINE_KEYS <= set(summary)
     assert set(rows[0]) == set(main.FIELDS)
     expected = list(csv.DictReader(io.StringIO(BASELINE_CSV)))
     for actual, reference in zip(rows, expected, strict=True):

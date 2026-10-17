@@ -226,12 +226,12 @@ def train(args):
                     done = bool(done or len(next_invalid) == 4)
                     next_mask = np.ones(4, dtype=bool)
                     next_mask[next_invalid] = False
-                    remember_emitted(accumulator.push(state, action, reward, next_state,
-                                                       done, next_mask))
-                    state = next_state
                     steps += 1
                     env_steps += 1
                     agent.set_env_step(env_steps)
+                    remember_emitted(accumulator.push(state, action, reward, next_state,
+                                                       done, next_mask))
+                    state = next_state
                     entries = agent.memory.size
                     if scheduler is not None:
                         due = scheduler.step() if entries >= config.batch_size else 0
