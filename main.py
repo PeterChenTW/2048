@@ -50,7 +50,8 @@ def parser():
     train = commands.add_parser('train', help='train using the fast CPU board')
     train.add_argument('--checkpoint', default=DEFAULT_CHECKPOINT)
     train.add_argument('--from-scratch', action='store_true')
-    train.add_argument('--arch', choices=('legacy', 'onehot_dueling', 'onehot_conv2x2'), default='legacy')
+    train.add_argument('--arch', choices=('legacy', 'onehot_dueling', 'onehot_conv2x2',
+                                        'onehot_afterstate'), default='legacy')
     train.add_argument('--n-step', type=positive_int, default=1)
     train.add_argument('--restart-frac', type=fraction, default=0.0,
                        help='fraction of episodes started from own reached boards (default: off)')
@@ -128,7 +129,12 @@ def train(args):
         random.seed(args.seed)
         np.random.seed(args.seed)
         torch.manual_seed(args.seed)
-    agent = DDQNAgent(16, 4, config=config)
+    if config.arch == 'onehot_afterstate':
+        from afterstate import afterstates
+        from afterstate_agent import AfterstateAgent
+        agent = AfterstateAgent(16, 4, config=config)
+    else:
+        agent = DDQNAgent(16, 4, config=config)
     if not args.from_scratch:
         try:
             agent.load(args.checkpoint)
@@ -198,7 +204,8 @@ def train(args):
                 else:
                     board = FastBoard(rng=random.Random(None if args.seed is None else args.seed + episode - 1))
                 state = torch.as_tensor(board.state, dtype=torch.float32)
-                accumulator = NStepAccumulator(config.n_step, config.gamma)
+                if config.arch != 'onehot_afterstate':
+                    accumulator = NStepAccumulator(config.n_step, config.gamma)
                 steps = 0
                 episode_stats = []
                 episode_nan = 0
@@ -213,6 +220,8 @@ def train(args):
                             restart_env_steps += 1
                         else:
                             fresh_env_steps += 1
+                    if config.arch == 'onehot_afterstate':
+                        after_state = afterstates(board.grid)[0][action]
                     next_grid, reward, done = board.move(board.all_moves[action])
                     if config.reward_mode != 'log':
                         spawned = (reward != -1)
@@ -224,13 +233,16 @@ def train(args):
                     next_state = torch.as_tensor(next_grid, dtype=torch.float32)
                     next_invalid = board.get_invalid_moves()
                     done = bool(done or len(next_invalid) == 4)
-                    next_mask = np.ones(4, dtype=bool)
-                    next_mask[next_invalid] = False
                     steps += 1
                     env_steps += 1
                     agent.set_env_step(env_steps)
-                    remember_emitted(accumulator.push(state, action, reward, next_state,
-                                                       done, next_mask))
+                    if config.arch == 'onehot_afterstate':
+                        agent.remember(after_state, next_state, done)
+                    else:
+                        next_mask = np.ones(4, dtype=bool)
+                        next_mask[next_invalid] = False
+                        remember_emitted(accumulator.push(state, action, reward, next_state,
+                                                           done, next_mask))
                     state = next_state
                     entries = agent.memory.size
                     if scheduler is not None:
@@ -258,7 +270,8 @@ def train(args):
                             break
                     if done or stop:
                         break
-                remember_emitted(accumulator.flush())
+                if accumulator is not None:
+                    remember_emitted(accumulator.flush())
                 if restart_enabled:
                     for grid in collect_episode(trajectory):
                         pool.add(grid)

@@ -3,6 +3,22 @@ import math
 import numpy as np
 
 
+def _validate_options(mode, scale):
+    if mode not in ('log', 'linear'):
+        raise ValueError(f"unknown reward mode: {mode!r}")
+    if isinstance(scale, bool) or not isinstance(scale, (int, float)) or not (scale > 0) or not math.isfinite(scale):
+        raise ValueError(f"scale must be a finite positive number, got {scale!r}")
+
+
+def merge_rewards(merge_score, mode='log', scale=256.0):
+    """Shape scalar or batched merge scores before any float32 conversion."""
+    _validate_options(mode, scale)
+    merge_score = np.asarray(merge_score, dtype=np.float64)
+    if mode == 'log':
+        return np.log2(1 + merge_score) / 16
+    return merge_score / scale
+
+
 def shape_reward(merge_score, spawned, mode='log', scale=256.0) -> float:
     """Compute step reward given turn merge score and whether a tile spawned.
 
@@ -18,12 +34,7 @@ def shape_reward(merge_score, spawned, mode='log', scale=256.0) -> float:
     scale : float, default=256.0
         Scale denominator for linear mode; must be positive.
     """
-    if mode not in ('log', 'linear'):
-        raise ValueError(f"unknown reward mode: {mode!r}")
-    if isinstance(scale, bool) or not isinstance(scale, (int, float)) or not (scale > 0) or not math.isfinite(scale):
-        raise ValueError(f"scale must be a finite positive number, got {scale!r}")
     if not spawned:
+        _validate_options(mode, scale)
         return -1.0
-    if mode == 'log':
-        return float(np.log2(1 + merge_score) / 16)
-    return float(merge_score / scale)
+    return float(merge_rewards(merge_score, mode, scale))

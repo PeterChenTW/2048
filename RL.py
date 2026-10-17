@@ -110,8 +110,13 @@ class DDQNAgent:
                 not isinstance(self.config.epsilon_decay_steps, int) or
                 self.config.epsilon_decay_steps < 1):
             raise ValueError('epsilon_decay_steps must be a positive integer')
-        if self.config.arch not in ('legacy', 'onehot_dueling', 'onehot_conv2x2'):
+        if self.config.arch not in ('legacy', 'onehot_dueling', 'onehot_conv2x2',
+                                    'onehot_afterstate'):
             raise ValueError(f'unknown architecture: {self.config.arch}')
+        if self.config.arch == 'onehot_afterstate':
+            from afterstate_agent import AfterstateAgent
+            if not isinstance(self, AfterstateAgent):
+                raise ValueError('onehot_afterstate requires AfterstateAgent, not DDQNAgent')
         if (isinstance(self.config.n_step, bool) or
                 not isinstance(self.config.n_step, int) or self.config.n_step < 1):
             raise ValueError('n_step must be a positive integer')
@@ -140,10 +145,12 @@ class DDQNAgent:
         else:
             self.step_at_insert = None
             self.updates_at_insert = None
+        from value_net import OneHotValueNet
         networks = {
             'legacy': DQN,
             'onehot_dueling': OneHotDuelingDQN,
             'onehot_conv2x2': OneHotConv2x2DQN,
+            'onehot_afterstate': OneHotValueNet,
         }
         network = networks[self.config.arch]
         self.model = network()
@@ -162,6 +169,10 @@ class DDQNAgent:
         discount = self.config.gamma if discount is None else discount
         transition = (self._state_tensor(state).clone(), action, reward,
                       self._state_tensor(next_state).clone(), done, discount, valid_mask)
+        self._remember_transition(transition)
+
+    def _remember_transition(self, transition):
+        """Insert either replay format with shared PER priority and age bookkeeping."""
         if self.config.per_max_priority == 'tree':
             max_priority = self.memory.max_priority()
         else:
@@ -173,6 +184,14 @@ class DDQNAgent:
             self.step_at_insert[slot] = self.env_step
             self.updates_at_insert[slot] = self.replay_calls
         self.memory.add(max_priority, transition)
+
+    def _replay_age_stats(self, idxs):
+        if not self.config.track_replay_age:
+            return {}
+        data_idxs = [idx - self.memory.capacity + 1 for idx in idxs]
+        return dict(
+            age_steps_mean=float(np.mean(self.env_step - self.step_at_insert[data_idxs])),
+            age_updates_mean=float(np.mean(self.replay_calls - self.updates_at_insert[data_idxs])))
 
     def q_values(self, state):
         with torch.no_grad():
@@ -232,10 +251,7 @@ class DDQNAgent:
                      q_max=q.max().item(), target_mean=targets.mean().item(),
                      td_abs_mean=td.abs().mean().item(), is_weight_mean=weights.mean().item(),
                      is_weight_min=weights.min().item(), beta=self.beta, epsilon=self.epsilon)
-        if self.config.track_replay_age:
-            data_idxs = [idx - self.memory.capacity + 1 for idx in idxs]
-            stats['age_steps_mean'] = float(np.mean(self.env_step - self.step_at_insert[data_idxs]))
-            stats['age_updates_mean'] = float(np.mean(self.replay_calls - self.updates_at_insert[data_idxs]))
+        stats.update(self._replay_age_stats(idxs))
         stats['nan'] = not all(np.isfinite(v) for v in stats.values())
         if stats['nan']:
             raise FloatingPointError(f'nonfinite replay statistics: {stats}')
@@ -285,6 +301,7 @@ def _read_checkpoint(path):
     architectures = {
         'onehot_dueling_v1': 'onehot_dueling',
         'onehot_conv2x2_v1': 'onehot_conv2x2',
+        'onehot_afterstate_v1': 'onehot_afterstate',
         'legacy': 'legacy',
     }
     architecture = payload.get('architecture')
@@ -301,7 +318,11 @@ def load_checkpoint(path):
     payload, arch = _read_checkpoint(path)
     config = DQNConfig(**payload.get('config', {})) if 'format' in payload else DQNConfig()
     config.arch = arch
-    agent = DDQNAgent(16, 4, config)
+    if arch == 'onehot_afterstate':
+        from afterstate_agent import AfterstateAgent
+        agent = AfterstateAgent(16, 4, config)
+    else:
+        agent = DDQNAgent(16, 4, config)
     state = payload['state_dict'] if 'format' in payload else payload
     agent.model.load_state_dict(state, strict=True)
     agent.update_target_model()
