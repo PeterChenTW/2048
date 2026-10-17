@@ -619,7 +619,13 @@ def test_check8_defaults_untouched_and_legacy_dueling_checkpoints_load(tmp_path)
         "arch": "legacy",
         "n_step": 1,
     }
-    assert asdict(cfg) == expected_defaults
+    actual = asdict(cfg)
+    # Pre-existing fields keep their values; fields added by the other experiment
+    # branches (merged in exp/integrate) must sit at their OFF defaults.
+    assert {k: actual[k] for k in expected_defaults} == expected_defaults
+    off_defaults = dict(per_max_priority='scan', track_replay_age=False, reward_mode='log',
+                        reward_scale=256.0, restart_frac=0.0, restart_pool_size=5000)
+    assert {k: v for k, v in actual.items() if k not in expected_defaults} == off_defaults
 
     # Default DDQNAgent builds legacy DQN and round-trips raw state_dict checkpoints
     legacy_agent = DDQNAgent(16, 4)
