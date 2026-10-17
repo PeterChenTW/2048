@@ -30,6 +30,13 @@ def nonnegative_float(value):
     return number
 
 
+def positive_float(value):
+    number = float(value)
+    if not math.isfinite(number) or number <= 0:
+        raise argparse.ArgumentTypeError('must be finite and positive')
+    return number
+
+
 def parser():
     root = argparse.ArgumentParser(description=__doc__)
     commands = root.add_subparsers(dest='command', required=True)
@@ -42,6 +49,8 @@ def parser():
     train.add_argument('--episodes', type=positive_int, default=1_000_000)
     train.add_argument('--minutes', type=nonnegative_float)
     train.add_argument('--gamma', type=nonnegative_float)
+    train.add_argument('--reward-mode', choices=('log', 'linear'), default=None)
+    train.add_argument('--reward-scale', type=positive_float, default=None)
     train.add_argument('--eps-schedule', choices=('update_exp', 'linear_steps'))
     train.add_argument('--eps-start', type=nonnegative_float)
     train.add_argument('--eps-min', type=nonnegative_float)
@@ -75,11 +84,16 @@ def train(args):
     from fast_board import FastBoard
     from RL import DDQNAgent
     from nstep import NStepAccumulator
+    from rewards import shape_reward
 
     torch.set_num_threads(args.threads)
     config_args = {'seed': args.seed, 'arch': args.arch, 'n_step': args.n_step}
     if args.gamma is not None:
         config_args['gamma'] = args.gamma
+    if args.reward_mode is not None:
+        config_args['reward_mode'] = args.reward_mode
+    if args.reward_scale is not None:
+        config_args['reward_scale'] = args.reward_scale
     for argument, field in [('eps_schedule', 'epsilon_schedule'),
                             ('eps_start', 'epsilon_start'), ('eps_min', 'epsilon_min'),
                             ('eps_decay_steps', 'epsilon_decay_steps')]:
@@ -148,6 +162,11 @@ def train(args):
                         break
                     action = agent.act(state, invalid)
                     next_grid, reward, done = board.move(board.all_moves[action])
+                    if config.reward_mode != 'log':
+                        spawned = (reward != -1)
+                        reward = shape_reward(board.get_score, spawned,
+                                              mode=config.reward_mode,
+                                              scale=config.reward_scale)
                     next_state = torch.as_tensor(next_grid, dtype=torch.float32)
                     next_invalid = board.get_invalid_moves()
                     done = bool(done or len(next_invalid) == 4)
@@ -222,6 +241,8 @@ def train(args):
         q_ranges[key] = {'min': min(values) if values else None,
                          'max': max(values) if values else None}
     summary = dict(arch=config.arch, n_step=config.n_step, episodes=len(rows),
+                   gamma=config.gamma, reward_mode=config.reward_mode,
+                   reward_scale=config.reward_scale,
                    epsilon_schedule=config.epsilon_schedule,
                    epsilon_start=config.epsilon_start, epsilon_min=config.epsilon_min,
                    epsilon_decay_steps=config.epsilon_decay_steps,

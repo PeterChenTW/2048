@@ -97,6 +97,12 @@ class DDQNAgent:
         if (isinstance(self.config.n_step, bool) or
                 not isinstance(self.config.n_step, int) or self.config.n_step < 1):
             raise ValueError('n_step must be a positive integer')
+        if self.config.reward_mode not in ('log', 'linear'):
+            raise ValueError(f'unknown reward mode: {self.config.reward_mode}')
+        if (isinstance(self.config.reward_scale, bool) or
+                not isinstance(self.config.reward_scale, (int, float)) or
+                self.config.reward_scale <= 0 or not np.isfinite(self.config.reward_scale)):
+            raise ValueError('reward_scale must be a finite positive number')
         self.state_size = state_size
         self.action_size = action_size
         if self.config.seed is not None:
