@@ -81,6 +81,8 @@ def evaluate(*, checkpoint=DEFAULT_CHECKPOINT, policy='greedy', games=100,
                     break
                 if agent is None:
                     action = action_rng.choice([a for a in range(4) if a not in invalid])
+                elif callable(getattr(agent, 'greedy_action', None)):
+                    action = int(agent.greedy_action(instance.grid, invalid))
                 else:
                     with torch.no_grad():
                         state = torch.tensor(instance.grid, dtype=torch.float32)
