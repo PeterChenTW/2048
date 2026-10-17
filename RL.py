@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from config import DQNConfig
+from conv2x2 import OneHotConv2x2DQN
 from dueling import OneHotDuelingDQN
 from nstep import double_dqn_targets
 
@@ -109,7 +110,7 @@ class DDQNAgent:
                 not isinstance(self.config.epsilon_decay_steps, int) or
                 self.config.epsilon_decay_steps < 1):
             raise ValueError('epsilon_decay_steps must be a positive integer')
-        if self.config.arch not in ('legacy', 'onehot_dueling'):
+        if self.config.arch not in ('legacy', 'onehot_dueling', 'onehot_conv2x2'):
             raise ValueError(f'unknown architecture: {self.config.arch}')
         if (isinstance(self.config.n_step, bool) or
                 not isinstance(self.config.n_step, int) or self.config.n_step < 1):
@@ -139,7 +140,12 @@ class DDQNAgent:
         else:
             self.step_at_insert = None
             self.updates_at_insert = None
-        network = DQN if self.config.arch == 'legacy' else OneHotDuelingDQN
+        networks = {
+            'legacy': DQN,
+            'onehot_dueling': OneHotDuelingDQN,
+            'onehot_conv2x2': OneHotConv2x2DQN,
+        }
+        network = networks[self.config.arch]
         self.model = network()
         self.target_model = network()
         self.update_target_model()
@@ -276,7 +282,11 @@ def _read_checkpoint(path):
         return payload, 'legacy'
     if payload['format'] != 'dqn2048-v2':
         raise ValueError(f"unsupported checkpoint format: {payload['format']!r}")
-    architectures = {'onehot_dueling_v1': 'onehot_dueling', 'legacy': 'legacy'}
+    architectures = {
+        'onehot_dueling_v1': 'onehot_dueling',
+        'onehot_conv2x2_v1': 'onehot_conv2x2',
+        'legacy': 'legacy',
+    }
     architecture = payload.get('architecture')
     if architecture not in architectures:
         raise ValueError(f'unsupported checkpoint architecture: {architecture!r}')

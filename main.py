@@ -43,7 +43,7 @@ def parser():
     train = commands.add_parser('train', help='train using the fast CPU board')
     train.add_argument('--checkpoint', default=DEFAULT_CHECKPOINT)
     train.add_argument('--from-scratch', action='store_true')
-    train.add_argument('--arch', choices=('legacy', 'onehot_dueling'), default='legacy')
+    train.add_argument('--arch', choices=('legacy', 'onehot_dueling', 'onehot_conv2x2'), default='legacy')
     train.add_argument('--n-step', type=positive_int, default=1)
     train.add_argument('--save-as', help='output checkpoint (default: model/dqn_revamp_<timestamp>)')
     train.add_argument('--episodes', type=positive_int, default=1_000_000)
@@ -123,7 +123,7 @@ def train(args):
             agent.load(args.checkpoint)
         except ValueError as exc:
             if config.arch != 'legacy':
-                raise ValueError('--arch onehot_dueling requires --from-scratch or '
+                raise ValueError(f'--arch {config.arch} requires --from-scratch or '
                                  '--checkpoint pointing to a v2 checkpoint of the same arch') from exc
             raise
         print(f'Loaded checkpoint: {args.checkpoint}', flush=True)
