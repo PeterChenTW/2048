@@ -1,8 +1,8 @@
-# 實驗排程狀態（自動更新：2026-10-18 04:07 台北時間）
+# 實驗排程狀態（自動更新：2026-10-18 05:54 台北時間）
 
 ## 尚未回報的里程碑
-- [2026-10-18 04:07] W3（E2-L3 + E2-L1）完成
-- [2026-10-18 04:07] #2 容量×n-step 判定：不過（s101: 不過（L3/S3 ×0.93，≥1024 0% vs 0%，差中差 +2798）；s202: 不過（L3/S3 ×1.00，≥1024 0% vs 0%，差中差 +819））
+- [2026-10-18 05:54] W4（E3-LOG997 + E3-LIN997）完成
+- [2026-10-18 05:54] #3 linear×γ 判定：不過（s101: 不過（lin/log @.99 ×0.44，@.997 ×0.51，最佳 Δ≥1024 -1pp）；s202: 不過（lin/log @.99 ×0.78，@.997 ×0.88，最佳 Δ≥1024 +2pp））
 
 （轉報後執行 `python3 /workspace/rl2048-review/experiments/status.py --ack` 清空此區塊。）
 
@@ -15,14 +15,14 @@
 ## 註記與待辦
 - 對照組種子變異大（BASE s101 5,249 對 s202 3,095）：各實驗以「同 seed 對 BASE」逐 seed 判定，不以兩 seed 平均下結論。
 - BASE 各 seed（eval 100 局 mean）：s101 5,249，s202 3,095；2 seed 平均 4,172，範圍 3,095–5,249（BASE_s303 完成後補第 3 個 seed 的平均與範圍）
-- 待辦（W4 後處理）：用 tools/analyze_q_td.py 抽樣 BASE / E3 各 checkpoint 的 Q 與 TD 分位數，驗證 #3 解釋一「Q/TD 尺度改變 → 同一 lr／grad clip 不再適配」與解釋二「linear 每步 reward 弱且集中在少數大合併」（同一次執行也輸出 greedy 10 局的每步 reward mean／p10／p50／p90／p99／0 比例）：排程會在 W4 結束後、W4 publish 前自動執行
+- 待辦（W4 後處理）：用 tools/analyze_q_td.py 抽樣 BASE / E3 各 checkpoint 的 Q 與 TD 分位數，驗證 #3 解釋一「Q/TD 尺度改變 → 同一 lr／grad clip 不再適配」與解釋二「linear 每步 reward 弱且集中在少數大合併」（同一次執行也輸出 greedy 10 局的每步 reward mean／p10／p50／p90／p99／0 比例）：已完成，見 results/exp3_linear_reward/q_td_analysis.md
 
 ## 假說門檻對照（REPORT.md §4；每個 seed 各自判定，兩個都過才算過）
 | 實驗 | 判定 | 明細 |
 |---|---|---|
 | #1 afterstate | 不過 | s101: 不過（mean 6303 vs 5249（×1.20），≥1024 13% vs 8%）；s202: 過（mean 6580 vs 3095（×2.13），≥1024 19% vs 0%） |
 | #2 容量×n-step | 不過 | s101: 不過（L3/S3 ×0.93，≥1024 0% vs 0%，差中差 +2798）；s202: 不過（L3/S3 ×1.00，≥1024 0% vs 0%，差中差 +819） |
-| #3 linear×γ | 待資料 | s101: 待資料；s202: 待資料 |
+| #3 linear×γ | 不過 | s101: 不過（lin/log @.99 ×0.44，@.997 ×0.51，最佳 Δ≥1024 -1pp）；s202: 不過（lin/log @.99 ×0.78，@.997 ×0.88，最佳 Δ≥1024 +2pp） |
 | #4 conv2x2 | 待資料 | s101: 待資料；s202: 待資料 |
 | #5 restart pool | 待資料 | s101: 待資料；s202: 待資料 |
 
@@ -55,14 +55,14 @@
 | E2-L1_s101 | done | 2317 | 2316 | 5% | 0% | 0% | 507107 | 228141 | 42.2 | 0 |
 | E2-L1_s202 | done | 2277 | 2184 | 7% | 0% | 0% | 511403 | 230074 | 42.6 | 0 |
 
-### W4：E3-LOG997 + E3-LIN997 — 未開始
+### W4：E3-LOG997 + E3-LIN997 — 完成
 
 | job | 狀態 | mean | median | ≥512 | ≥1024 | ≥2048 | env steps | updates | updates/s | NaN |
 |---|---|---|---|---|---|---|---|---|---|---|
-| E3-LOG997_s101 | pending | | | | | | | | | |
-| E3-LOG997_s202 | pending | | | | | | | | | |
-| E3-LIN997_s101 | pending | | | | | | | | | |
-| E3-LIN997_s202 | pending | | | | | | | | | |
+| E3-LOG997_s101 | done | 4077 | 3842 | 38% | 1% | 0% | 530021 | 238452 | 44.2 | 0 |
+| E3-LOG997_s202 | done | 4235 | 4112 | 42% | 0% | 0% | 527892 | 237494 | 44.0 | 0 |
+| E3-LIN997_s101 | done | 2077 | 1868 | 3% | 0% | 0% | 498312 | 224183 | 41.5 | 0 |
+| E3-LIN997_s202 | done | 3741 | 3272 | 30% | 2% | 0% | 513974 | 231231 | 42.8 | 0 |
 
 ### W5：E4-C22 + E5-RST — 未開始
 
@@ -75,12 +75,12 @@
 
 ## schedule_run.log 最後幾行
 ```
-[2026-10-18 02:31:48 Taipei] W3 start E2-L3_s202 (train+eval)
-[2026-10-18 02:31:48 Taipei] W3 start E2-L1_s101 (train+eval)
-[2026-10-18 02:31:48 Taipei] W3 start E2-L1_s202 (train+eval)
-[2026-10-18 04:07:53 Taipei] W3 done E2-L3_s101 rc=0
-[2026-10-18 04:07:53 Taipei] W3 done E2-L3_s202 rc=0
-[2026-10-18 04:07:54 Taipei] W3 done E2-L1_s101 rc=0
-[2026-10-18 04:07:54 Taipei] W3 done E2-L1_s202 rc=0
-[2026-10-18 04:07:54 Taipei] W3 end
+[2026-10-18 04:07:58 Taipei] W4 start E3-LIN997_s101 (train+eval)
+[2026-10-18 04:07:58 Taipei] W4 start E3-LIN997_s202 (train+eval)
+[2026-10-18 05:54:12 Taipei] W4 done E3-LOG997_s101 rc=0
+[2026-10-18 05:54:13 Taipei] W4 done E3-LOG997_s202 rc=0
+[2026-10-18 05:54:13 Taipei] W4 done E3-LIN997_s101 rc=0
+[2026-10-18 05:54:13 Taipei] W4 done E3-LIN997_s202 rc=0
+[2026-10-18 05:54:13 Taipei] W4 end
+[2026-10-18 05:54:51 Taipei] W4 post-wave rc=0: /workspace/rl2048-review/.venv/bin/python tools/analyze_q_td.py --states ...
 ```
