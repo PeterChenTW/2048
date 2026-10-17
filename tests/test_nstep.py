@@ -101,6 +101,10 @@ def test_rejects_bad_n_and_gamma():
         NStepAccumulator(2, 1.01)
     with pytest.raises(ValueError):
         NStepAccumulator(2, float("nan"))
+    with pytest.raises(ValueError):
+        NStepAccumulator(2, True)
+    with pytest.raises(ValueError):
+        NStepAccumulator(2, False)
     NStepAccumulator(1, 0.0)
     NStepAccumulator(4, 1.0)
     assert len(NStepAccumulator(3, 0.9)) == 0
@@ -667,3 +671,207 @@ def test_non_finite_loss_raises_and_does_not_step():
             **batch_inf,
         )
     assert torch.equal(online_inf.bias.detach(), before_inf)
+
+
+def test_double_dqn_targets_non_finite_q():
+    # 1. Legal +inf in online Q raises FloatingPointError for bootstrapping row
+    online_pos_inf = _Table([[float("inf"), 1.0]])
+    target = _Table([[2.0, 3.0]])
+    with pytest.raises(FloatingPointError):
+        double_dqn_targets(
+            online_pos_inf,
+            target,
+            torch.tensor([0.0]),
+            torch.zeros(1, 2),
+            torch.tensor([False]),
+            torch.tensor([[True, True]]),
+            torch.tensor([0.9]),
+        )
+
+    # 2. Legal NaN in online Q raises FloatingPointError for bootstrapping row
+    online_nan = _Table([[1.0, float("nan")]])
+    with pytest.raises(FloatingPointError):
+        double_dqn_targets(
+            online_nan,
+            target,
+            torch.tensor([0.0]),
+            torch.zeros(1, 2),
+            torch.tensor([False]),
+            torch.tensor([[True, True]]),
+            torch.tensor([0.9]),
+        )
+
+    # 3. Legal non-finite in target Q raises FloatingPointError for bootstrapping row
+    online = _Table([[1.0, 2.0]])
+    target_nan = _Table([[float("nan"), 3.0]])
+    with pytest.raises(FloatingPointError):
+        double_dqn_targets(
+            online,
+            target_nan,
+            torch.tensor([0.0]),
+            torch.zeros(1, 2),
+            torch.tensor([False]),
+            torch.tensor([[True, True]]),
+            torch.tensor([0.9]),
+        )
+
+    # 4. Illegal non-finite in online and target Q are ignored and do not raise
+    online_illegal_inf = _Table([[1.0, float("inf")]])
+    target_illegal_nan = _Table([[5.0, float("nan")]])
+    y = double_dqn_targets(
+        online_illegal_inf,
+        target_illegal_nan,
+        torch.tensor([1.0]),
+        torch.zeros(1, 2),
+        torch.tensor([False]),
+        torch.tensor([[True, False]]),  # action 1 is illegal
+        torch.tensor([0.5]),
+    )
+    assert torch.allclose(y, torch.tensor([1.0 + 0.5 * 5.0]))
+    assert torch.isfinite(y).all()
+
+    # 5. Done row with NaN/inf in online and target Q produces finite target
+    online_done_bad = _Table([[float("nan"), float("inf")]])
+    target_done_bad = _Table([[float("inf"), float("nan")]])
+    y_done = double_dqn_targets(
+        online_done_bad,
+        target_done_bad,
+        torch.tensor([3.5]),
+        torch.zeros(1, 2),
+        torch.tensor([True]),  # done=True
+        torch.tensor([[True, True]]),
+        torch.tensor([0.9]),
+    )
+    assert torch.allclose(y_done, torch.tensor([3.5]))
+    assert torch.isfinite(y_done).all()
+
+    # 6. All-masked row with NaN/inf in online and target Q produces finite target
+    y_all_masked = double_dqn_targets(
+        online_done_bad,
+        target_done_bad,
+        torch.tensor([7.0]),
+        torch.zeros(1, 2),
+        torch.tensor([False]),  # done=False but all-masked
+        torch.tensor([[False, False]]),
+        torch.tensor([0.9]),
+    )
+    assert torch.allclose(y_all_masked, torch.tensor([7.0]))
+    assert torch.isfinite(y_all_masked).all()
+
+
+def test_dqn_batch_update_negative_and_non_finite_weights():
+    online = _BiasQ(0.0)
+    target = _BiasQ(0.0)
+    opt = torch.optim.SGD(online.parameters(), lr=0.1)
+    batch = _fixed_batch(
+        rewards=[1.0, 2.0],
+        dones=[True, True],
+        masks=[[True, True, True, True], [True, True, True, True]],
+        discounts=[0.9, 0.9],
+    )
+    # Negative weights raise ValueError
+    with pytest.raises(ValueError):
+        dqn_batch_update(
+            online, target, opt, is_weights=[-0.1, 1.0], **batch
+        )
+    with pytest.raises(ValueError):
+        dqn_batch_update(
+            online, target, opt, is_weights=[1.0, -1e-5], **batch
+        )
+    # Non-finite weights raise ValueError
+    with pytest.raises(ValueError):
+        dqn_batch_update(
+            online, target, opt, is_weights=[float("nan"), 1.0], **batch
+        )
+    with pytest.raises(ValueError):
+        dqn_batch_update(
+            online, target, opt, is_weights=[float("inf"), 1.0], **batch
+        )
+
+
+def test_grad_clip_actually_caps_gradient_norm():
+    online = _BiasQ(0.0)
+    target = _BiasQ(0.0)
+    lr = 0.05
+    grad_clip = 0.5
+    optimizer = torch.optim.SGD(online.parameters(), lr=lr)
+
+    before = online.bias.detach().clone()
+    batch = _fixed_batch(
+        rewards=[1000.0],
+        dones=[True],
+        masks=[[True, True, True, True]],
+        discounts=[1.0],
+        actions=torch.tensor([0]),
+    )
+    stats, td_abs = dqn_batch_update(
+        online,
+        target,
+        optimizer,
+        is_weights=[1.0],
+        grad_clip=grad_clip,
+        **batch,
+    )
+    # Loss is (0 - 1000)^2 = 1e6. Unclipped grad on bias[0] is 2 * (0 - 1000) = -2000.
+    # Grad norm is 2000 >> grad_clip (0.5).
+    # Clipped grad is [-0.5, 0, 0, 0].
+    # SGD step is: bias_new = bias_old - lr * clipped_grad = 0 - 0.05 * (-0.5) = +0.025.
+    applied_step = online.bias.detach() - before
+    expected_step = torch.tensor([lr * grad_clip, 0.0, 0.0, 0.0])
+    assert torch.allclose(applied_step, expected_step)
+    assert applied_step[0].item() == pytest.approx(lr * grad_clip)
+    assert (applied_step[1:] == 0.0).all()
+
+
+def test_huber_quadratic_regime():
+    # |delta| = 0.5 <= 1.0 falls in the quadratic regime of Huber loss: 0.5 * delta^2 = 0.5 * 0.25 = 0.125
+    online = _BiasQ(0.0)
+    target = _BiasQ(0.0)
+    optimizer = torch.optim.SGD(online.parameters(), lr=0.01)
+    batch = _fixed_batch(
+        rewards=[0.5],
+        dones=[True],
+        masks=[[True, True, True, True]],
+        discounts=[1.0],
+        actions=torch.tensor([0]),
+    )
+    stats, td_abs = dqn_batch_update(
+        online,
+        target,
+        optimizer,
+        is_weights=[1.0],
+        huber=True,
+        **batch,
+    )
+    assert td_abs[0] == pytest.approx(0.5)
+    assert stats["loss"] == pytest.approx(0.125)
+
+
+def test_batch_size_one_update():
+    torch.manual_seed(42)
+    online = _BiasQ(1.0)
+    target = _BiasQ(2.0)
+    optimizer = torch.optim.SGD(online.parameters(), lr=0.1)
+    batch = _fixed_batch(
+        rewards=[3.0],
+        dones=[False],
+        masks=[[False, True, False, False]],  # only action 1 is legal
+        discounts=[0.9],
+        actions=torch.tensor([1]),
+    )
+    before = online.bias.detach().clone()
+    stats, td_abs = dqn_batch_update(
+        online,
+        target,
+        optimizer,
+        is_weights=[1.0],
+        grad_clip=1.0,
+        **batch,
+    )
+    assert td_abs.shape == (1,)
+    assert td_abs[0] == pytest.approx(3.8)
+    assert stats["loss"] == pytest.approx(14.44)
+    assert stats["q_mean"] == pytest.approx(1.0)
+    assert stats["target_mean"] == pytest.approx(4.8)
+    assert online.bias.detach()[1] > before[1]
+

@@ -80,6 +80,8 @@ class NStepAccumulator:
         n = int(n)
         if n < 1:
             raise ValueError(f"n must be an integer >= 1, got {n}")
+        if isinstance(gamma, bool):
+            raise ValueError(f"gamma must be in [0, 1], got {gamma!r}")
         try:
             gamma_f = float(gamma)
         except (TypeError, ValueError) as exc:
@@ -191,14 +193,20 @@ def double_dqn_targets(
     reward_t = torch.as_tensor(rewards, device=device, dtype=dtype).reshape(batch)
     discount_t = torch.as_tensor(discounts, device=device, dtype=dtype).reshape(batch)
 
-    # Finite fill: argmax over an all-False row stays defined and is discarded.
+    bootstrap_ok = masks.any(dim=1) & ~done
+    bootstrapping_masks = masks & bootstrap_ok.unsqueeze(1)
+    if (~torch.isfinite(online_q) & bootstrapping_masks).any():
+        raise FloatingPointError("online Q contains non-finite value at a legal position for a bootstrapping row")
+    if (~torch.isfinite(target_q) & bootstrapping_masks).any():
+        raise FloatingPointError("target Q contains non-finite value at a legal position for a bootstrapping row")
+
+    # Masked positions are filled with neg so illegal actions are not selected.
+    # Non-finite online Q values at masked positions are replaced by this fill.
     neg = torch.finfo(dtype).min
     selectable = online_q.masked_fill(~masks, neg)
-    selectable = torch.where(torch.isfinite(selectable), selectable, torch.full_like(selectable, neg))
     action = selectable.argmax(dim=1)
     chosen = target_q.gather(1, action.view(batch, 1)).squeeze(1)
 
-    bootstrap_ok = masks.any(dim=1) & ~done
     zeros = torch.zeros(batch, device=device, dtype=dtype)
     bootstrap = torch.where(bootstrap_ok, chosen, zeros)
     return reward_t + discount_t * bootstrap
@@ -254,6 +262,8 @@ def dqn_batch_update(
         raise ValueError(
             f"is_weights length {weights.numel()} does not match batch {q.shape[0]}"
         )
+    if (weights < 0).any() or not torch.isfinite(weights).all():
+        raise ValueError("is_weights must be non-negative and finite")
     # Mean reduction matches ``nn.MSELoss`` when every weight is 1, and a
     # weight of 0 contributes neither loss nor gradient.
     loss = (weights.detach() * per_sample).mean()
