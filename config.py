@@ -27,3 +27,5 @@ class DQNConfig:
     seed: int | None = None
     arch: str = 'legacy'
     n_step: int = 1
+    reward_mode: str = 'log'
+    reward_scale: float = 256.0
