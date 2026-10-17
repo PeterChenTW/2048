@@ -50,6 +50,8 @@ def parser():
     train.add_argument('--log', help='episode CSV (default: results/train_<output name>.csv)')
     train.add_argument('--threads', type=positive_int, default=1)
     train.add_argument('--replay-every', type=positive_int, default=4)
+    train.add_argument('--replay-ratio', type=nonnegative_float,
+                       help='gradient updates per env step (e.g. 0.78); overrides --replay-every')
     train.add_argument('--save-every', type=positive_int, default=250)
     train.add_argument('--plot', action='store_true')
     play = commands.add_parser('play', help='launch the optional pygame GUI')
@@ -115,6 +117,8 @@ def train(args):
     stopped_reason = None
     stop = False
     accumulator = None
+    from step4_utils import ReplayScheduler
+    scheduler = ReplayScheduler(args.replay_ratio) if args.replay_ratio else None
 
     def remember_emitted(transitions):
         for transition in transitions:
@@ -156,7 +160,11 @@ def train(args):
                     env_steps += 1
                     agent.set_env_step(env_steps)
                     entries = agent.memory.size
-                    if entries >= config.batch_size and env_steps % args.replay_every == 0:
+                    if scheduler is not None:
+                        due = scheduler.step() if entries >= config.batch_size else 0
+                    else:
+                        due = int(entries >= config.batch_size and env_steps % args.replay_every == 0)
+                    for _ in range(due):
                         try:
                             stats = agent.replay()
                         except (FloatingPointError, RuntimeError) as exc:
@@ -174,6 +182,7 @@ def train(args):
                             stopped_reason = 'nonfinite_replay'
                             print(f'Non-finite replay at episode {episode}, step {env_steps}: {stats}', flush=True)
                             stop = True
+                            break
                     if done or stop:
                         break
                 remember_emitted(accumulator.flush())
@@ -217,6 +226,8 @@ def train(args):
                    epsilon_start=config.epsilon_start, epsilon_min=config.epsilon_min,
                    epsilon_decay_steps=config.epsilon_decay_steps,
                    env_steps=env_steps, updates=updates,
+                   replay_ratio_requested=args.replay_ratio,
+                   replay_ratio_actual=(updates / env_steps) if env_steps else None,
                    duration_s=time.monotonic() - started,
                    score_last_100_mean=mean(r['score_v2'] for r in rows[-100:]),
                    loss_first_50_mean=mean(losses[:50]), loss_last_50_mean=mean(losses[-50:]),
