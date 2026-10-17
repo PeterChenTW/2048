@@ -30,6 +30,13 @@ def nonnegative_float(value):
     return number
 
 
+def fraction(value):
+    number = nonnegative_float(value)
+    if number > 1:
+        raise argparse.ArgumentTypeError('must be between 0 and 1')
+    return number
+
+
 def parser():
     root = argparse.ArgumentParser(description=__doc__)
     commands = root.add_subparsers(dest='command', required=True)
@@ -38,6 +45,9 @@ def parser():
     train.add_argument('--from-scratch', action='store_true')
     train.add_argument('--arch', choices=('legacy', 'onehot_dueling'), default='legacy')
     train.add_argument('--n-step', type=positive_int, default=1)
+    train.add_argument('--restart-frac', type=fraction, default=0.0,
+                       help='fraction of episodes started from own reached boards (default: off)')
+    train.add_argument('--restart-pool-size', type=positive_int, default=5000)
     train.add_argument('--save-as', help='output checkpoint (default: model/dqn_revamp_<timestamp>)')
     train.add_argument('--episodes', type=positive_int, default=1_000_000)
     train.add_argument('--minutes', type=nonnegative_float)
@@ -77,7 +87,8 @@ def train(args):
     from nstep import NStepAccumulator
 
     torch.set_num_threads(args.threads)
-    config_args = {'seed': args.seed, 'arch': args.arch, 'n_step': args.n_step}
+    config_args = {'seed': args.seed, 'arch': args.arch, 'n_step': args.n_step,
+                   'restart_frac': args.restart_frac, 'restart_pool_size': args.restart_pool_size}
     if args.gamma is not None:
         config_args['gamma'] = args.gamma
     for argument, field in [('eps_schedule', 'epsilon_schedule'),
@@ -119,6 +130,13 @@ def train(args):
     accumulator = None
     from step4_utils import ReplayScheduler
     scheduler = ReplayScheduler(args.replay_ratio) if args.replay_ratio else None
+    restart_enabled = config.restart_frac > 0
+    if restart_enabled:
+        from restart_pool import RestartPool, collect_episode
+        restart_rng = random.Random(None if args.seed is None else args.seed + 7_000_003)
+        pool = RestartPool(config.restart_pool_size, restart_rng)
+        pool_adds = late_steps = 0
+        fresh_env_steps = restart_env_steps = 0
 
     def remember_emitted(transitions):
         for transition in transitions:
@@ -129,14 +147,26 @@ def train(args):
                            transition.next_state, transition.done, invalid, **options)
 
     with log.open('w', newline='') as handle:
-        writer = csv.DictWriter(handle, fieldnames=FIELDS)
+        writer = csv.DictWriter(handle, fieldnames=FIELDS + (
+            ['start', 'start_max_tile'] if restart_enabled else []))
         writer.writeheader()
         handle.flush()
         try:
             for episode in range(1, args.episodes + 1):
                 if time.monotonic() >= deadline:
                     break
-                board = FastBoard(rng=random.Random(None if args.seed is None else args.seed + episode - 1))
+                if restart_enabled:
+                    board_rng = random.Random(None if args.seed is None else args.seed + episode - 1)
+                    grid = pool.sample() if restart_rng.random() < config.restart_frac else None
+                    board = FastBoard.from_grid(grid, rng=board_rng) if grid is not None else None
+                    start = 'restart'
+                    if board is None or len(board.get_invalid_moves()) == 4:
+                        board = FastBoard(rng=board_rng)
+                        start = 'fresh'
+                    start_max_tile = int(board.state.max())
+                    trajectory = [board.grid]
+                else:
+                    board = FastBoard(rng=random.Random(None if args.seed is None else args.seed + episode - 1))
                 state = torch.as_tensor(board.state, dtype=torch.float32)
                 accumulator = NStepAccumulator(config.n_step, config.gamma)
                 steps = 0
@@ -147,7 +177,15 @@ def train(args):
                     if len(invalid) == 4 or time.monotonic() >= deadline:
                         break
                     action = agent.act(state, invalid)
+                    if restart_enabled:
+                        late_steps += int(board.state.max() >= 512)
+                        if start == 'restart':
+                            restart_env_steps += 1
+                        else:
+                            fresh_env_steps += 1
                     next_grid, reward, done = board.move(board.all_moves[action])
+                    if restart_enabled:
+                        trajectory.append(board.grid)
                     next_state = torch.as_tensor(next_grid, dtype=torch.float32)
                     next_invalid = board.get_invalid_moves()
                     done = bool(done or len(next_invalid) == 4)
@@ -186,10 +224,16 @@ def train(args):
                     if done or stop:
                         break
                 remember_emitted(accumulator.flush())
+                if restart_enabled:
+                    for grid in collect_episode(trajectory):
+                        pool.add(grid)
+                        pool_adds += 1
                 row = dict(episode=episode, score_v2=int(board.score_v2),
                            max_tile=int(board.state.max()), steps=steps,
                            epsilon=float(agent.epsilon), beta=float(agent.beta),
                            nan_count=episode_nan, elapsed_s=time.monotonic() - started)
+                if restart_enabled:
+                    row.update(start=start, start_max_tile=start_max_tile)
                 for key in ('loss', 'q_mean', 'td_abs_mean', 'is_weight_mean'):
                     row[key] = mean(s.get(key) for s in episode_stats)
                 for key, aggregate in [('q_min', min), ('q_max', max)]:
@@ -234,6 +278,13 @@ def train(args):
                    q_stats_ranges=q_ranges, nan_count=nan_count, stopped_reason=stopped_reason,
                    interrupted=interrupted,
                    checkpoint=str(output), loaded_checkpoint=None if args.from_scratch else args.checkpoint)
+    if restart_enabled:
+        fresh_rows = [r for r in rows if r['start'] == 'fresh']
+        summary.update(fresh_episodes=len(fresh_rows), restart_episodes=len(rows) - len(fresh_rows),
+                       fresh_env_steps=fresh_env_steps, restart_env_steps=restart_env_steps,
+                       pool_size_final=len(pool), pool_adds=pool_adds,
+                       late_stage_fraction=late_steps / env_steps if env_steps else 0.0,
+                       score_last_100_fresh_mean=mean(r['score_v2'] for r in fresh_rows[-100:]))
     serialized = json.dumps(summary, indent=2, allow_nan=False)
     log.with_suffix('.json').write_text(serialized + '\n')
     print(serialized, flush=True)

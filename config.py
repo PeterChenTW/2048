@@ -25,3 +25,5 @@ class DQNConfig:
     seed: int | None = None
     arch: str = 'legacy'
     n_step: int = 1
+    restart_frac: float = 0.0
+    restart_pool_size: int = 5000
