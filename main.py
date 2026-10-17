@@ -1,110 +1,231 @@
-import numpy as np
-import torch
-import matplotlib.pyplot as plt
-import os
+"""Train a DDQN agent on FastBoard, or launch the optional pygame GUI."""
+import argparse
+import csv
 import datetime
-import pygame
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-from game_2048 import Game, Board
-from RL import DDQNAgent
+import json
+import math
+import os
+from pathlib import Path
+import random
+import statistics
+import time
 
-sns.set(style='whitegrid')
+DEFAULT_CHECKPOINT = 'model/nn_prioritize_replay_no_invalid_gamma_099_2'
+FIELDS = ['episode', 'score_v2', 'max_tile', 'steps', 'epsilon', 'beta',
+          'loss', 'q_mean', 'q_min', 'q_max', 'td_abs_mean', 'is_weight_mean',
+          'nan_count', 'elapsed_s']
 
 
-def train_DDQN(episodes, model_name):
-    agent = DDQNAgent(16, 4)
-    record_freq = 50
-    if os.path.exists(f'model/{model_name}'):
-        print('exist')
-        agent.load(f'model/{model_name}')
-    scores = []
-    turns = []
-    invalid_move_ratio = []
+def positive_int(value):
+    number = int(value)
+    if number <= 0:
+        raise argparse.ArgumentTypeError('must be positive')
+    return number
 
-    env = Board(4, 0)
-    for e in range(episodes):
-        state = torch.from_numpy(env.state).float()
 
-        while True:
-            action = agent.act(state, env.get_invalid_moves())
-            next_state, reward, done = env.move(env.all_moves[action])
-            next_state = torch.from_numpy(next_state).float()
-            reward = torch.tensor(reward).float()
-            agent.remember(state, action, reward, next_state, done)
-            state = next_state
-            if done:
-                print("episode: {:11}/{}, score: {:6}, score(v2): {:7}, turns: {:6}, invalid: {:6}"
-                      .format(e, episodes, env.score, env.score_v2, env.turns - env.invalid_move, env.invalid_move))
+def nonnegative_float(value):
+    number = float(value)
+    if not math.isfinite(number) or number < 0:
+        raise argparse.ArgumentTypeError('must be finite and nonnegative')
+    return number
 
-                scores.append(env.score_v2)
-                turns.append(env.turns-env.invalid_move)
-                invalid_move_ratio.append(env.invalid_move/env.turns)
-                break
 
-        if e > 128:
-            agent.replay(128)
+def parser():
+    root = argparse.ArgumentParser(description=__doc__)
+    commands = root.add_subparsers(dest='command', required=True)
+    train = commands.add_parser('train', help='train using the fast CPU board')
+    train.add_argument('--checkpoint', default=DEFAULT_CHECKPOINT)
+    train.add_argument('--from-scratch', action='store_true')
+    train.add_argument('--save-as', help='output checkpoint (default: model/dqn_revamp_<timestamp>)')
+    train.add_argument('--episodes', type=positive_int, default=1_000_000)
+    train.add_argument('--minutes', type=nonnegative_float)
+    train.add_argument('--gamma', type=nonnegative_float)
+    train.add_argument('--seed', type=int)
+    train.add_argument('--log', help='episode CSV (default: results/train_<output name>.csv)')
+    train.add_argument('--threads', type=positive_int, default=1)
+    train.add_argument('--replay-every', type=positive_int, default=4)
+    train.add_argument('--save-every', type=positive_int, default=250)
+    train.add_argument('--plot', action='store_true')
+    play = commands.add_parser('play', help='launch the optional pygame GUI')
+    play.add_argument('--checkpoint', default=DEFAULT_CHECKPOINT)
+    return root
 
-        if e % record_freq == 0:
-            agent.update_target_model()
 
-        env.__init__(4)
+def finite(value):
+    return value is not None and math.isfinite(float(value))
 
-        if e % 250 == 0 and e != 0:
-            agent.save(f'model/{model_name}')
 
-            scores_ma = pd.Series(scores).rolling(window=20).mean()
-            losses_ma = pd.Series(agent.losses).rolling(window=20).mean()
-            turns_ma = pd.Series(turns).rolling(window=20).mean()
-            invalid_move_ma = pd.Series(
-                invalid_move_ratio).rolling(window=20).mean()
+def mean(values):
+    values = [float(value) for value in values if finite(value)]
+    return statistics.fmean(values) if values else None
 
-            plt.figure(figsize=(12, 20))
 
-            plt.subplot(4, 1, 1)
-            plt.plot(np.arange(len(scores_ma)), scores_ma)
-            plt.ylabel('Score')
-            plt.xlabel('Episode')
-            plt.title('Score over Episodes')
-            plt.grid(True)
+def train(args):
+    import numpy as np
+    import torch
+    from config import DQNConfig
+    from fast_board import FastBoard
+    from RL import DDQNAgent
 
-            plt.subplot(4, 1, 2)
-            plt.plot(np.arange(len(losses_ma)), losses_ma)
-            plt.yscale('log') 
-            plt.ylabel('Loss (moving average, log scale)')
-            plt.xlabel('Episode')
-            plt.title('Loss over Episodes')
-            plt.grid(True)
+    torch.set_num_threads(args.threads)
+    config_args = {'seed': args.seed}
+    if args.gamma is not None:
+        config_args['gamma'] = args.gamma
+    config = DQNConfig(**config_args)
+    if args.seed is not None:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+    agent = DDQNAgent(16, 4, config=config)
+    if not args.from_scratch:
+        agent.load(args.checkpoint)
+        print(f'Loaded checkpoint: {args.checkpoint}', flush=True)
+    else:
+        print('Starting from scratch', flush=True)
 
-            plt.subplot(4, 1, 3)
-            plt.plot(np.arange(len(turns_ma)), turns_ma)
-            plt.ylabel('Turns')
-            plt.xlabel('Episode')
-            plt.title('Turns over Episodes')
-            plt.grid(True)
+    stamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+    output = Path(args.save_as or f'model/dqn_revamp_{stamp}')
+    log = Path(args.log or f'results/train_{output.name}.csv')
+    output.parent.mkdir(parents=True, exist_ok=True)
+    log.parent.mkdir(parents=True, exist_ok=True)
+    started = time.monotonic()
+    deadline = started + args.minutes * 60 if args.minutes is not None else math.inf
+    env_steps = updates = entries = nan_count = 0
+    rows, all_stats = [], []
+    interrupted = False
+    stopped_reason = None
+    stop = False
+    with log.open('w', newline='') as handle:
+        writer = csv.DictWriter(handle, fieldnames=FIELDS)
+        writer.writeheader()
+        handle.flush()
+        try:
+            for episode in range(1, args.episodes + 1):
+                if time.monotonic() >= deadline:
+                    break
+                board = FastBoard(rng=random.Random(None if args.seed is None else args.seed + episode - 1))
+                state = torch.as_tensor(board.state, dtype=torch.float32)
+                steps = 0
+                episode_stats = []
+                episode_nan = 0
+                while True:
+                    invalid = board.get_invalid_moves()
+                    if len(invalid) == 4 or time.monotonic() >= deadline:
+                        break
+                    action = agent.act(state, invalid)
+                    next_grid, reward, done = board.move(board.all_moves[action])
+                    next_state = torch.as_tensor(next_grid, dtype=torch.float32)
+                    next_invalid = board.get_invalid_moves()
+                    done = bool(done or len(next_invalid) == 4)
+                    agent.remember(state, action, reward, next_state, done, next_invalid)
+                    state = next_state
+                    steps += 1
+                    env_steps += 1
+                    entries = min(entries + 1, config.memory_capacity)
+                    if entries >= config.batch_size and env_steps % args.replay_every == 0:
+                        try:
+                            stats = agent.replay()
+                        except (FloatingPointError, RuntimeError) as exc:
+                            if isinstance(exc, RuntimeError) and not any(
+                                    marker in str(exc).lower() for marker in ('non-finite', 'nonfinite')):
+                                raise
+                            stats = {'nan': True, 'error': str(exc)}
+                        else:
+                            updates += 1
+                        episode_stats.append(stats)
+                        all_stats.append(stats)
+                        if stats.get('nan', False) or not finite(stats.get('loss')):
+                            episode_nan += 1
+                            nan_count += 1
+                            stopped_reason = 'nonfinite_replay'
+                            print(f'Non-finite replay at episode {episode}, step {env_steps}: {stats}', flush=True)
+                            stop = True
+                    if done or stop:
+                        break
+                row = dict(episode=episode, score_v2=int(board.score_v2),
+                           max_tile=int(board.state.max()), steps=steps,
+                           epsilon=float(agent.epsilon), beta=float(agent.beta),
+                           nan_count=episode_nan, elapsed_s=time.monotonic() - started)
+                for key in ('loss', 'q_mean', 'td_abs_mean', 'is_weight_mean'):
+                    row[key] = mean(s.get(key) for s in episode_stats)
+                for key, aggregate in [('q_min', min), ('q_max', max)]:
+                    values = [float(s[key]) for s in episode_stats if finite(s.get(key))]
+                    row[key] = aggregate(values) if values else None
+                writer.writerow({k: v if not isinstance(v, float) or finite(v) else None for k, v in row.items()})
+                handle.flush()
+                rows.append(row)
+                if episode % config.target_update_episodes == 0:
+                    agent.update_target_model()
+                if episode % args.save_every == 0:
+                    agent.save(str(output))
+                if episode % 20 == 0:
+                    print(f'Episode {episode}: score={board.score_v2} steps={steps} '
+                          f'epsilon={agent.epsilon:.5f} loss={row["loss"]}', flush=True)
+                if stop:
+                    break
+        except KeyboardInterrupt:
+            interrupted = True
+            print('Interrupted; saving checkpoint.', flush=True)
+        finally:
+            agent.save(str(output))
 
-            plt.subplot(4, 1, 4)
-            plt.plot(np.arange(len(invalid_move_ma)), invalid_move_ma)
-            plt.ylabel('Invalid Moves Ratio')
-            plt.xlabel('Episode')
-            plt.title('Invalid Moves Ratio over Episodes')
-            plt.grid(True)
+    losses = [s.get('loss') for s in all_stats]
+    q_ranges = {}
+    for key in ('q_mean', 'q_min', 'q_max'):
+        values = [float(s[key]) for s in all_stats if finite(s.get(key))]
+        q_ranges[key] = {'min': min(values) if values else None,
+                         'max': max(values) if values else None}
+    summary = dict(episodes=len(rows), env_steps=env_steps, updates=updates,
+                   duration_s=time.monotonic() - started,
+                   score_last_100_mean=mean(r['score_v2'] for r in rows[-100:]),
+                   loss_first_50_mean=mean(losses[:50]), loss_last_50_mean=mean(losses[-50:]),
+                   q_stats_ranges=q_ranges, nan_count=nan_count, stopped_reason=stopped_reason,
+                   interrupted=interrupted,
+                   checkpoint=str(output), loaded_checkpoint=None if args.from_scratch else args.checkpoint)
+    serialized = json.dumps(summary, indent=2, allow_nan=False)
+    log.with_suffix('.json').write_text(serialized + '\n')
+    print(serialized, flush=True)
+    if args.plot:
+        try:
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+        except ImportError:
+            print('Plot skipped: install matplotlib to use --plot.')
+        else:
+            fig, axes = plt.subplots(2, 1)
+            axes[0].plot([r['episode'] for r in rows], [r['score_v2'] for r in rows])
+            axes[0].set_ylabel('Score')
+            axes[1].plot([r['episode'] for r in rows], [r['loss'] for r in rows])
+            axes[1].set_ylabel('Mean loss')
+            axes[1].set_xlabel('Episode')
+            fig.tight_layout()
+            fig.savefig(log.with_suffix('.png'))
+            plt.close(fig)
+    return 2 if nan_count else 0
 
-            plt.tight_layout(pad=3.0) 
-            plt.savefig(
-                f'result/{model_name}_{datetime.datetime.now():%Y%m%d%H%M%S}.png')
+
+def play(args):
+    import pygame
+    from game_2048 import Game
+
+    pygame.init()
+    try:
+        pygame.display.set_mode((410, 410))
+        pygame.display.set_caption('2048')
+        # Game prepends model/ to its model_name argument.
+        game = Game(4, role='AI', model_name=os.path.relpath(args.checkpoint, 'model'))
+        game.draw()
+        game.run()
+    finally:
+        pygame.quit()
+    return 0
+
+
+def main(argv=None):
+    args = parser().parse_args(argv)
+    return train(args) if args.command == 'train' else play(args)
 
 
 if __name__ == '__main__':
-    model_name = 'fixed_random_seed'
-
-    while True:
-        train_DDQN(10000000, model_name)
-
-    pygame.init()
-    screen = pygame.display.set_mode((410, 410))
-    pygame.display.set_caption("2048")
-    game = Game(4, role='AI', model_name=model_name)
-    game.draw()
-    game.run()
+    raise SystemExit(main())
