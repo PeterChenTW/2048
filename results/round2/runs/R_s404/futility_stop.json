@@ -1,0 +1,14 @@
+{
+  "stopped": "2026-10-18 18:03:33 台北（SIGINT → 訓練程式存最後 checkpoint 與 train.json；bash 包裝先 SIGTERM，避免接著跑 t180 eval）",
+  "decision": "PM 10-18 17:59：R 在 s303 正式不過（×1.16／+13pp），futility 提前終止（R_PREREG 修訂 4）",
+  "active_min": 15.5,
+  "episodes": 391,
+  "env_steps": 145515,
+  "updates": 36346,
+  "updates_per_s": 39.0,
+  "score_last_100_mean": 5539.44,
+  "nan_count": 0,
+  "final_checkpoint": "/workspace/rl2048-review/experiments/runs/round2/R_s404/ckpt",
+  "stop_snapshot": "/workspace/rl2048-review/experiments/runs/round2/R_s404/snapshots/stop_t0015.5.pt",
+  "snapshot_evals": "無（t90 之前就停止，沒有任何探索性快照 eval）"
+}
