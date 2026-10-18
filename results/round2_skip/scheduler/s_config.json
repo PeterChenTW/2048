@@ -1,8 +1,8 @@
 {
-  "note": "S_PREREG 修訂 3：一批三個 S；對照使用既有同 seed t180 C 軌跡；快照僅供探索。",
-  "prereg": "results/round2_skip/S_PREREG.md 修訂 1（2026-10-18 13:36 台北）＋修訂 2（2026-10-18 14:08 台北，成本門改為診斷）＋修訂 3（2026-10-18 14:12 台北，對照改用既有同 seed 180 分鐘 C 軌跡）",
+  "note": "S_PREREG 修訂 4：一批四個 S；s101／s202／s303 正式，s404 探索性；對照使用既有同 seed t180 C 軌跡。",
+  "prereg": "results/round2_skip/S_PREREG.md 修訂 1（2026-10-18 13:36 台北）＋修訂 2（2026-10-18 14:08 台北，成本門改為診斷）＋修訂 3（2026-10-18 14:12 台北，對照改用既有同 seed 180 分鐘 C 軌跡）＋修訂 4（2026-10-18 14:26 台北，加跑探索性 S_s404）",
   "code_dir": "/workspace/rl2048-review/wt-skip-run",
-  "expected_commit": "c0dc1c3ce4200d4316d006aacb66cfb1e1256f00",
+  "expected_commit": "e9ab8a3c88e294d9a560530805db5a19d9a4f37a",
   "python": "/workspace/rl2048-review/.venv/bin/python",
   "runs_dir": "/workspace/rl2048-review/skip-run/runs",
   "repo": "/workspace/rl2048-review/wt-skip",
@@ -23,7 +23,8 @@
     "idle_checks": 2,
     "idle_interval_s": 30,
     "control_ready": [
-      "303"
+      "303",
+      "404"
     ]
   },
   "common": [
@@ -71,7 +72,8 @@
       "jobs": [
         "S_s101",
         "S_s202",
-        "S_s303"
+        "S_s303",
+        "S_s404"
       ]
     }
   ],
@@ -93,6 +95,13 @@
       "arm": "S",
       "seed": 303,
       "batch": 1
+    },
+    {
+      "name": "S_s404",
+      "arm": "S",
+      "seed": 404,
+      "batch": 1,
+      "exploratory": true
     }
   ],
   "eval": {
@@ -138,6 +147,38 @@
         "state": "/workspace/rl2048-review/experiments/round2/pair_state.json",
         "pair": "303"
       }
+    },
+    "404": {
+      "name": "C_s404",
+      "dir": "/workspace/rl2048-review/experiments/runs/round2/C_s404",
+      "eval": "eval.json",
+      "require": [
+        "eval_end"
+      ],
+      "load": {
+        "state": "/workspace/rl2048-review/experiments/round2/quad_state.json",
+        "scope": "top"
+      },
+      "load_note": "整個 R quad 批次平均",
+      "exploratory": true
     }
-  }
+  },
+  "formal_seeds": [
+    "101",
+    "202",
+    "303"
+  ],
+  "exploratory_seeds": [
+    "404"
+  ],
+  "compute_ref": {
+    "name": "C_s101（round2，8 核滿載）",
+    "ups": 32.4,
+    "note": "load1 9.1、忙碌核 8.0/8"
+  },
+  "compute_bias_seeds": [
+    "101",
+    "202"
+  ],
+  "compute_bias_flag": "可能受運算量偏差影響"
 }

@@ -79,7 +79,7 @@ class Scheduler:
             for control in self.controls.values():
                 control["dir"] = str(Path(controls_root) / control["name"])
                 if control.get("load"):
-                    control["load"]["state"] = str(Path(controls_root) / "pair_state.json")
+                    control["load"]["state"] = str(Path(controls_root) / Path(control["load"]["state"]).name)
         self.py = c["python"]
         self.jobs = {j["name"]: j for j in c["jobs"]}
         self.batches = {str(b["id"]): b for b in c["batches"]}
@@ -242,7 +242,8 @@ class Scheduler:
     def check_flags(self, st, force=False):
         t = self.now_epoch()
         cached = st.get("flags", {})
-        if not force and 0 <= t - cached.get("checked_epoch", -1e30) < 600:
+        complete_cache = isinstance(cached.get("jobs"), dict) and set(cached["jobs"]) == set(self.controls)
+        if not force and complete_cache and 0 <= t - cached.get("checked_epoch", -1e30) < 600:
             results = cached["jobs"]
         else:
             spec, results = self.flag_spec()
@@ -287,7 +288,8 @@ class Scheduler:
         w = dict(quad_done=bool((load(self.quad_state, {}) or {}).get("done")), busy=busy,
                  time_ok=t >= datetime.fromisoformat(req["not_before"]).timestamp(),
                  idle_count=idle["count"], idle_ok=idle["count"] >= req["idle_checks"], checked=now())
-        w["control_ready"] = all(self.control_ready(seed) for seed in req["control_ready"])
+        w["controls_ready"] = {seed: self.control_ready(seed) for seed in req["control_ready"]}
+        w["control_ready"] = all(w["controls_ready"].values())
         w["flags"] = self.check_flags(st)
         w["flags_ok"] = all(w["flags"].get(seed, {}).get("ok", False) for seed in self.controls)
         w["process_scope_ok"] = self.process_scope_ok()
@@ -370,8 +372,13 @@ class Scheduler:
         if m:
             cfg = control.get("load")
             state = load(cfg["state"], {}) if cfg else {}
-            pairs = state.get("pairs", {}) if isinstance(state, dict) else {}
-            b = pairs.get(cfg["pair"], {}) if cfg and isinstance(pairs, dict) else {}
+            b = {}
+            if cfg and isinstance(state, dict):
+                if cfg.get("scope") == "top":
+                    b = state
+                else:
+                    pairs = state.get("pairs", {})
+                    b = pairs.get(cfg["pair"], {}) if isinstance(pairs, dict) else {}
             b = b if isinstance(b, dict) else {}
             def average(mean, total, count):
                 value = b.get(mean)
@@ -388,10 +395,12 @@ class Scheduler:
     def verdicts(self, st):
         rows = []
         R = self.cfg["rules"]
-        for seed in (101, 202, 303):
+        for seed_text in self.cfg["formal_seeds"] + self.cfg["exploratory_seeds"]:
+            seed = int(seed_text)
+            exploratory = seed_text in self.cfg["exploratory_seeds"]
             s, c = self.metrics(f"S_s{seed}", st), self.control_metrics(seed)
             if not (s and c):
-                rows.append(dict(seed=seed, pending=True))
+                rows.append(dict(seed=seed, pending=True, exploratory=exploratory))
                 continue
             ratio = s["mean"] / c["mean"] if c["mean"] > 0 else None
             dpp = 100 * (s["r1024"] - c["r1024"])
@@ -400,20 +409,46 @@ class Scheduler:
             diag = dict(updates=div(s["updates"], c["updates"]), env_steps=div(s["env_steps"], c["env_steps"]),
                         ups=div(s["ups"], c["ups"]))
             score_ok = ratio is not None and ratio >= R["ratio"] and dpp >= R["pp_1024"] - 1e-9
-            rows.append(dict(seed=seed, pending=False, S=s, C=c, ratio=ratio, dpp=dpp, diag=diag,
+            rows.append(dict(seed=seed, pending=False, exploratory=exploratory, S=s, C=c, ratio=ratio, dpp=dpp, diag=diag,
                              score_ok=score_ok, ok=score_ok,
                              abs_S=s["mean"] > R["abs_mean"] and s["r1024"] >= R["abs_r1024"],
                              abs_C=c["mean"] > R["abs_mean"] and c["r1024"] >= R["abs_r1024"]))
+        for row in rows:
+            row["bias_note"] = self.compute_bias_note(row)
+        exploratory_rows = [r for r in rows if r["exploratory"]]
+        all_pending = any(r["pending"] for r in rows)
+        rows = [r for r in rows if not r["exploratory"]]
         pending = any(r["pending"] for r in rows)
         paired = [dict(seed=r["seed"], mean_diff=r["S"]["mean"] - r["C"]["mean"], ratio=r["ratio"], dpp=r["dpp"])
                   for r in rows if not r["pending"]]
         spread = {}
         for key in ("mean_diff", "ratio", "dpp"):
             values = [r[key] for r in paired if r[key] is not None]
-            spread[key] = dict(sd=statistics.stdev(values), min=min(values), max=max(values)) if len(values) == 3 else None
-        return dict(rows=rows, paired=paired, spread=spread, pending=pending, n_pass=sum(r.get("ok", False) for r in rows),
+            spread[key] = dict(sd=statistics.stdev(values), min=min(values), max=max(values)) if len(values) == len(self.cfg["formal_seeds"]) and len(values) > 1 else None
+        return dict(rows=rows, exploratory_rows=exploratory_rows, all_pending=all_pending, paired=paired, spread=spread, pending=pending, n_pass=sum(r.get("ok", False) for r in rows),
                     adopt=not pending and all(r["ok"] for r in rows),
                     absolute=not pending and all(r["abs_S"] for r in rows))
+
+    def compute_bias_note(self, row):
+        """修訂 4：僅對指定 LONG seed 分數門不過加註，不改判定。"""
+        if row["pending"] or row["score_ok"] or str(row["seed"]) not in self.cfg["compute_bias_seeds"]:
+            return ""
+        ups, ref = row["C"]["ups"], self.cfg["compute_ref"]["ups"]
+        ratio = ups / ref if ups is not None and ref > 0 else None
+        multiple = "×" + fmt(ratio, ".2f") if ratio is not None else "待資料"
+        return f"{self.cfg['compute_bias_flag']}（對照 updates/s 為參考的 {multiple}）"
+
+    def compute_bias_context(self):
+        ref = self.cfg["compute_ref"]
+        values = []
+        for seed in self.cfg["compute_bias_seeds"]:
+            control = self.control_metrics(seed)
+            ups = control["ups"] if control else None
+            ratio = ups / ref["ups"] if ups is not None and ref["ups"] > 0 else None
+            values.append(f"s{seed} LONG {fmt(ups)} updates/s（參考的 ×{fmt(ratio, '.2f')}）")
+        return ("s101、s202 的 LONG 對照約多拿 15–20% 運算量（LONG 37–39 updates/s，8 核滿載 C 約 32）。"
+                + "實際 train.json updates/active_s：" + "；".join(values)
+                + f"；參考 {ref['name']} {ref['ups']:.1f} updates/s（{ref['note']}）。此註記不改變正式判定。")
 
     def anomalies(self, job):
         d = self.runs / job["name"]
@@ -528,17 +563,19 @@ class Scheduler:
     def finish_text(self, st):
         vs = self.verdicts(st)
         texts = []
-        for v in vs["rows"]:
+        for v in vs["rows"] + vs["exploratory_rows"]:
+            qualifier = " 探索性，不進正式判定" if v["exploratory"] else ""
             if v["pending"]:
-                texts.append(f"s{v['seed']} 待資料（不通過）")
+                texts.append(f"s{v['seed']}{qualifier} 待資料（不通過）")
                 continue
-            texts.append(f"s{v['seed']} ×{fmt(v['ratio'], '.2f')}/{v['dpp']:+.1f}pp 分數{'過' if v['score_ok'] else '不過'}"
-                         f"（診斷 S/C：updates ×{fmt(v['diag']['updates'], '.2f')}、env_steps ×{fmt(v['diag']['env_steps'], '.2f')}、updates/s ×{fmt(v['diag']['ups'], '.2f')}）")
+            texts.append(f"s{v['seed']}{qualifier} ×{fmt(v['ratio'], '.2f')}/{v['dpp']:+.1f}pp 分數{'過' if v['score_ok'] else '不過'}"
+                         f"（診斷 S/C：updates ×{fmt(v['diag']['updates'], '.2f')}、env_steps ×{fmt(v['diag']['env_steps'], '.2f')}、updates/s ×{fmt(v['diag']['ups'], '.2f')}）"
+                         + ("；" + v["bias_note"] if v["bias_note"] else ""))
         spread = "；".join(f"{k} SD {fmt(v['sd'] if v else None, '.3f')}" for k, v in vs["spread"].items())
         b = st.get("batches", {}).get("1", {})
         return (f"round2 S 完成：{'；'.join(texts)} → {'採用 S' if vs['adopt'] else '不採用'}（{vs['n_pass']}/3）；"
                 f"配對差：{spread}；S 平均 load1 {fmt(b.get('mean_load1'))}／忙碌核 {fmt(b.get('mean_busy_cores'))}；"
-                "對照不同時段、負載不同，只並列不校正")
+                "對照不同時段、負載不同，只並列不校正；" + self.compute_bias_context())
 
     def snapshots_finished(self, st):
         """已取得快照的 eval 需收尾後才能結束監控及發佈。"""
@@ -593,7 +630,7 @@ class Scheduler:
                         self.alert_once(st, name, text)
                 if all(self.metrics(n) for n in batch["jobs"]):
                     b.setdefault("done", now())
-            if all(st["batches"].get(k, {}).get("done") for k in self.batches) and not self.verdicts(st)["pending"] and self.snapshots_finished(st):
+            if all(st["batches"].get(k, {}).get("done") for k in self.batches) and not self.verdicts(st)["all_pending"] and self.snapshots_finished(st):
                 if not st.get("done"):
                     text = st.setdefault("completion_text", self.finish_text(st))
                     self.milestone(text)
@@ -608,7 +645,7 @@ class Scheduler:
 
     def write_fragment(self, st, alerts):
         L = [f"# 第二輪 S 正式訓練狀態（更新：{now()} 台北）", "", f"事前登記：{self.cfg['prereg']}。",
-             "只有一批：S_s101、S_s202、S_s303 共用 CPU 0–7；每 job 2 threads、nice 10、180 分鐘 active。",
+             "只有一批：S_s101、S_s202、S_s303、S_s404 共用 CPU 0–7；每 job 2 threads、nice 10、180 分鐘 active。",
              "S = C 加 `--value-skip l1`；對照使用既有同 seed t180 軌跡；t90／120／150 僅供探索。", ""]
         if self.dry_run:
             L.append("**DRY-RUN：只寫本地狀態，禁止 launch／快照／publish／里程碑。**")
@@ -620,7 +657,8 @@ class Scheduler:
                   f"- 能確認全機程序：{yn(w.get('process_scope_ok'))}（隔離程序空間視為忙碌，保持等待）",
                   f"- 連續兩次空閒（間隔 ≥30秒）：{w.get('idle_count', 0)}/2；滿足：{yn(w.get('idle_ok'))}",
                   f"- 台北時間 ≥ 2026-10-18 20:30：{yn(w.get('time_ok'))}",
-                  f"- C_s303 t180 eval 已存在（有效 JSON 且 eval_end 存在）：{yn(w.get('control_ready'))}"]
+                  *[f"- C_s{seed} t180 eval 已存在（有效 JSON 且 eval_end 存在）：{yn(w.get('controls_ready', {}).get(seed))}"
+                    for seed in self.cfg["start_requires"]["control_ready"]]]
         else:
             L.append("狀態：**" + ("全部完成" if st.get("done") else "進行中") + "**")
         flags = w.get("flags", st.get("flags", {}).get("jobs", {}))
@@ -632,7 +670,7 @@ class Scheduler:
                 status += "：" + self.flag_summary(result)
             L.append(f"  - s{seed}：{status}")
         if not st.get("started"):
-            L.append("上述條件全部滿足且三個 seed 旗標一致，才會開跑批次 1；commit 核對後再次強制檢查旗標。")
+            L.append("上述條件全部滿足且四個 seed 旗標一致，才會開跑批次 1；commit 核對後再次強制檢查旗標。")
 
         def table(headers, rows):
             # 同一組欄位生成標題／分隔／資料列，避免缺資料時表格錯位。
@@ -654,47 +692,67 @@ class Scheduler:
             status = ("完成" if self.metrics(name) else "eval 中" if (d / "train.json").exists() and alive
                       else "訓練中" if alive else "中斷／待判斷" if (d / "meta.json").exists() else "未開跑")
             L.append(f"- {name}：{status}")
-        L += ["", "判定（S_PREREG 修訂 2＋修訂 3）：每 seed mean 比值 ≥1.20 且 Δ≥1024 ≥+10pp（等時間分數門）；三個 seed 全過才採用。缺資料不視為通過。",
+        L += ["", "判定（S_PREREG 修訂 2＋修訂 3＋修訂 4）：正式 s101／s202／s303 每 seed mean 比值 ≥1.20 且 Δ≥1024 ≥+10pp（等時間分數門）；三個 seed 全過才採用。缺資料不視為通過。",
               "S/C 的 updates、env_steps、updates/s 比值為必報診斷，不影響判定。絕對目標另列：mean >15,000 且 ≥1024 ≥80%；三種子平均僅供探索。"]
         vs = self.verdicts(st)
         verdict_rows, side_rows = [], []
         yes = lambda x: "過" if x else "不過"
-        for v in vs["rows"]:
+        for v in vs["rows"] + vs["exploratory_rows"]:
             seed = v["seed"]
+            seed_label = str(seed) + ("（探索性，不進正式判定）" if v["exploratory"] else "")
             label = self.controls[str(seed)]["name"] + " t180"
             if v["pending"]:
-                verdict_rows.append([seed, label, "待資料", "待資料", "待資料", "待資料", "不通過（待資料）",
+                verdict_rows.append([seed_label, label, "待資料", "待資料", "待資料", "待資料", "不通過（待資料）",
                                      "待資料", "待資料", "待資料", "待資料"])
             else:
                 s, c = v["S"], v["C"]
-                verdict_rows.append([seed, label, f"{c['mean']:,.0f}／{c['r1024']:.0%}", f"{s['mean']:,.0f}／{s['r1024']:.0%}",
-                                     "×" + fmt(v["ratio"], ".2f"), f"{v['dpp']:+.1f}pp", yes(v["ok"]),
+                verdict_rows.append([seed_label, label, f"{c['mean']:,.0f}／{c['r1024']:.0%}", f"{s['mean']:,.0f}／{s['r1024']:.0%}",
+                                     "×" + fmt(v["ratio"], ".2f"), f"{v['dpp']:+.1f}pp", yes(v["ok"]) + ("；" + v["bias_note"] if v["bias_note"] else ""),
                                      "×" + fmt(v["diag"]["updates"], ".3f"), "×" + fmt(v["diag"]["env_steps"], ".3f"),
                                      "×" + fmt(v["diag"]["ups"], ".3f"), yes(v["abs_C"]) + "／" + yes(v["abs_S"])])
             for name, m in ((f"S_s{seed}", self.metrics(f"S_s{seed}", st)), (label, self.control_metrics(seed))):
                 if m:
                     note = m.get("load_note")
-                    side_rows.append([seed, name, note or fmt(m["load1"]), note or fmt(m["busy"]),
+                    side_rows.append([seed_label, name + ("（" + note + "）" if note and not note.startswith("未記錄") else ""),
+                                      fmt(m["load1"]) if m["load1"] is not None else note or "待資料",
+                                      fmt(m["busy"]) if m["busy"] is not None else note or "待資料",
                                       fmt(m["updates"], ","), fmt(m["env_steps"], ","), fmt(m["ups"]),
                                       fmt(m["episodes"], ","), fmt(m["active_s"])])
                 else:
                     note = self.controls[str(seed)].get("load_note") if name == label else None
-                    side_rows.append([seed, name, note or "待資料", note or "待資料", *(["待資料"] * 5)])
+                    side_rows.append([seed_label, name, note or "待資料", note or "待資料", *(["待資料"] * 5)])
         table(["seed", "對照（預定終點）", "C mean／≥1024", "S mean／≥1024", "S/C", "Δ≥1024", "分數門＝判定",
                "診斷 S/C updates", "診斷 S/C env_steps", "診斷 S/C updates/s", "絕對目標 C／S"], verdict_rows)
         L += ["", "S 與對照並列："]
         table(["seed", "job", "load1", "忙碌核", "updates", "env_steps", "updates/s", "episodes", "active_s"], side_rows)
-        L += ["", "每 seed 配對差（S−C）："]
+        L += ["", "負載乾淨的比較：", "C_s303 取 pair s303 平均；C_s404 取整個 R quad 批次平均。"]
+        clean_rows = []
+        for v, row in zip(vs["rows"] + vs["exploratory_rows"], verdict_rows):
+            if v["seed"] not in (303, 404):
+                continue
+            seed = v["seed"]
+            cells = list(row[:10])
+            cells[0] = f"s{seed}（正式判定）" if not v["exploratory"] else f"s{seed}（探索性，不進正式判定）"
+            for m in (self.metrics(f"S_s{seed}", st), self.control_metrics(seed)):
+                cells.append(f"{fmt(m['load1'])}／{fmt(m['busy'])}" if m else "待資料／待資料")
+            clean_rows.append(cells)
+        table(["seed", "對照", "C mean／≥1024", "S mean／≥1024", "S/C", "Δ≥1024", "分數門",
+               "診斷 S/C updates", "診斷 S/C env_steps", "診斷 S/C updates/s", "S load1／忙碌核", "對照 load1／忙碌核"], clean_rows)
+        L += ["", "運算量偏差註記：", self.compute_bias_context(), "", "每 seed 配對差（S−C）："]
         paired = {v["seed"]: v for v in vs["paired"]}
+        for v in vs["exploratory_rows"]:
+            if not v["pending"]:
+                paired[v["seed"]] = dict(mean_diff=v["S"]["mean"] - v["C"]["mean"], ratio=v["ratio"], dpp=v["dpp"])
         table(["seed", "mean 差（S−C）", "mean 比值（S/C）", "≥1024 差（pp）"],
-              [[seed, fmt(paired.get(seed, {}).get("mean_diff"), "+.1f"),
+              [[str(seed) + ("（探索性，不進正式判定）" if str(seed) in self.cfg["exploratory_seeds"] else ""),
+                fmt(paired.get(seed, {}).get("mean_diff"), "+.1f"),
                 fmt(paired.get(seed, {}).get("ratio"), ".3f"), fmt(paired.get(seed, {}).get("dpp"), "+.1f")]
-               for seed in (101, 202, 303)])
+               for seed in map(int, self.cfg["formal_seeds"] + self.cfg["exploratory_seeds"])])
         table(["跨 seed 統計", "樣本 SD（n−1）", "min", "max"],
               [[k, *[fmt(v[x] if v else None, ".3f") for x in ("sd", "min", "max")]] for k, v in vs["spread"].items()])
-        L += ["", "3 個 seed＝3 條確定性軌跡（n=3），seed 間變異是唯一的變異估計；沒有 seed 內重複。跨 seed SD／範圍只在三個值都有時列出。"]
+        L += ["", "3 個 seed＝3 條確定性軌跡（n=3），seed 間變異是唯一的變異估計；沒有 seed 內重複。跨 seed SD／範圍只用三個正式 seed，且三個值都有時才列出；s404 另列，不進統計。"]
         if not vs["pending"]:
-            avg = {arm: {k: sum(v[arm][k] for v in vs["rows"]) / 3 for k in ("mean", "r1024")} for arm in ("C", "S")}
+            avg = {arm: {k: sum(v[arm][k] for v in vs["rows"]) / len(vs["rows"]) for k in ("mean", "r1024")} for arm in ("C", "S")}
             L += ["", f"三種子平均（探索性，不作判定）：C {avg['C']['mean']:,.0f}／{avg['C']['r1024']:.1%}；S {avg['S']['mean']:,.0f}／{avg['S']['r1024']:.1%}。",
                   f"**正式判定：{'採用 S' if vs['adopt'] else '不採用'}（{vs['n_pass']}/3 seed 通過）；絕對目標：{'穩健達標' if vs['absolute'] else '尚未穩健達標'}。**"]
         other = []
@@ -711,7 +769,8 @@ class Scheduler:
             for mark in self.cfg["snapshots"]:
                 ev = load(self.runs / name / "evals" / f"{snap_label(mark)}.json")
                 cells.append(f"{ev['mean']:,.0f}／{ev['reach_rates']['1024']:.0%}" if self.valid_eval(ev) else "待資料")
-            snapshots.append([name, *cells])
+            label = name + ("（探索性，不進正式判定）" if self.jobs[name].get("exploratory") else "")
+            snapshots.append([label, *cells])
         table(["job", *[f"t{m}" for m in self.cfg["snapshots"]]], snapshots)
         L += ["", "結果只能歸因到「整套 S 設定在 180 分鐘 active 預算下（含負載條件）」；env steps、updates、ε／target 節奏也會隨之改變。",
               "對照不同時段、負載不同，只並列不校正。",
