@@ -1,0 +1,52 @@
+
+================================================================================
+--- Round 1/1 [Start: 2026-10-18 12:25:46 CST | loadavg: 9.80, 9.64, 9.04] ---
+Variant Order: ['ref_i1', 'all_t2_i1', 'all_t1_i1']
+================================================================================
+
+>>> Running Variant: 'ref_i1' (expand=reference, threads=2, tdinf=None, tdfwd=None, seed=1)
+[ref_i1] Filling buffer to capacity (6000 transitions)...
+  -> Buffer filled (size=6000, added 6000 in 27.58s)
+[ref_i1] Measuring C: mixed training (15.0s, replay_ratio=0.45)...
+  -> 21.2 env steps/s, 9.5 updates/s (318 steps, 143 updates in 15.02s)
+
+>>> Running Variant: 'all_t2_i1' (expand=vectorized, threads=2, tdinf=True, tdfwd=fast, seed=1)
+[all_t2_i1] Filling buffer to capacity (6000 transitions)...
+  -> Buffer filled (size=6000, added 6000 in 29.58s)
+[all_t2_i1] Measuring C: mixed training (15.0s, replay_ratio=0.45)...
+  -> 12.6 env steps/s, 5.7 updates/s (189 steps, 85 updates in 15.02s)
+
+>>> Running Variant: 'all_t1_i1' (expand=vectorized, threads=1, tdinf=True, tdfwd=fast, seed=1)
+[all_t1_i1] Filling buffer to capacity (6000 transitions)...
+  -> Buffer filled (size=6000, added 6000 in 24.57s)
+[all_t1_i1] Measuring C: mixed training (15.0s, replay_ratio=0.45)...
+  -> 48.8 env steps/s, 21.9 updates/s (732 steps, 329 updates in 15.01s)
+
+--- End of Round 1/1 [End: 2026-10-18 12:28:54 CST | loadavg: 10.84, 10.08, 9.28] ---
+
+[Round 1/1 Summary Table (Baseline: 'ref_i1')]
+Variant         | Threads         | C: Steps/s      | C: Upd/s        | Ratio (Steps)   | Ratio (Upd)    
+----------------+-----------------+-----------------+-----------------+-----------------+----------------
+ref_i1          | 2               |            21.2 |            9.52 |           1.00x |           1.00x
+all_t2_i1       | 2               |            12.6 |            5.66 |           0.59x |           0.59x
+all_t1_i1       | 1               |            48.8 |           21.92 |           2.30x |           2.30x
+----------------+-----------------+-----------------+-----------------+-----------------+----------------
+
+================================================================================
+2048 Microbenchmark Final Summary (1 round(s), Baseline: 'ref_i1')
+Measures: C | Order: abba | Duration: 15.0s/phase
+================================================================================
+
+Variant: 'ref_i1' (expand=reference, threads=2, tdinf=None, tdfwd=None)
+  (Baseline)
+
+Variant: 'all_t2_i1' (expand=vectorized, threads=2, tdinf=True, tdfwd=fast)
+  Measure C env steps/s ratio: [0.59x] -> Median: 0.59x
+  Measure C updates/s ratio:   [0.59x] -> Median: 0.59x
+
+Variant: 'all_t1_i1' (expand=vectorized, threads=1, tdinf=True, tdfwd=fast)
+  Measure C env steps/s ratio: [2.30x] -> Median: 2.30x
+  Measure C updates/s ratio:   [2.30x] -> Median: 2.30x
+================================================================================
+
+Saved benchmark results to /workspace/rl2048-review/vec-work/v2_bench/r1_B.json

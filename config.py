@@ -28,6 +28,8 @@ class DQNConfig:
     seed: int | None = None
     arch: str = 'legacy'  # legacy, onehot_dueling, onehot_conv2x2, onehot_afterstate
     afterstate_expand: str = 'reference'
+    td_inference_mode: bool = False
+    td_forward: str = 'reference'
     n_step: int = 1
     reward_mode: str = 'log'
     reward_scale: float = 256.0

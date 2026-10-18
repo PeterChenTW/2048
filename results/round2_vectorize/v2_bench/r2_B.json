@@ -1,0 +1,104 @@
+{
+  "timestamp": "2026-10-18T12:36:52.457851+08:00",
+  "config": {
+    "variants": [
+      {
+        "name": "t1_i1",
+        "expand": "reference",
+        "threads": 1,
+        "tdinf": null,
+        "tdfwd": null
+      },
+      {
+        "name": "all_t1_i1",
+        "expand": "vectorized",
+        "threads": 1,
+        "tdinf": true,
+        "tdfwd": "fast"
+      }
+    ],
+    "baseline": "t1_i1",
+    "measures": [
+      "C"
+    ],
+    "rounds": 1,
+    "order": "abba",
+    "seconds": 12.0,
+    "seed": 2,
+    "interop_threads": 1
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "order": [
+        "t1_i1",
+        "all_t1_i1"
+      ],
+      "start_time": "2026-10-18 12:36:14 CST",
+      "end_time": "2026-10-18 12:36:52 CST",
+      "loadavg_start": [
+        9.806640625,
+        10.08544921875,
+        9.6533203125
+      ],
+      "loadavg_end": [
+        9.45703125,
+        9.96240234375,
+        9.62890625
+      ],
+      "results": {
+        "t1_i1": {
+          "measure_c": {
+            "env_steps": 758,
+            "updates": 341,
+            "elapsed_sec": 12.0210563369983,
+            "env_steps_per_sec": 63.0560225948725,
+            "updates_per_sec": 28.366891431202536
+          }
+        },
+        "all_t1_i1": {
+          "measure_c": {
+            "env_steps": 785,
+            "updates": 353,
+            "elapsed_sec": 12.020737142003782,
+            "env_steps_per_sec": 65.30381545878687,
+            "updates_per_sec": 29.365919562995877
+          }
+        }
+      },
+      "errors": {},
+      "ratios_vs_baseline": {
+        "t1_i1": {
+          "env_steps_ratio": 1.0,
+          "updates_ratio": 1.0
+        },
+        "all_t1_i1": {
+          "env_steps_ratio": 1.0356475523100492,
+          "updates_ratio": 1.0352181039722403
+        }
+      }
+    }
+  ],
+  "summary": {
+    "t1_i1": {
+      "env_steps_ratio_list": [
+        1.0
+      ],
+      "env_steps_ratio_median": 1.0,
+      "updates_ratio_list": [
+        1.0
+      ],
+      "updates_ratio_median": 1.0
+    },
+    "all_t1_i1": {
+      "env_steps_ratio_list": [
+        1.0356475523100492
+      ],
+      "env_steps_ratio_median": 1.0356475523100492,
+      "updates_ratio_list": [
+        1.0352181039722403
+      ],
+      "updates_ratio_median": 1.0352181039722403
+    }
+  }
+}

@@ -1,0 +1,11 @@
+round 5
+A start 12:41:59 load 8.99 9.41 9.48
+A end 12:43:16 load 9.19 9.36 9.45
+B start 12:43:16 load 9.19 9.36 9.45
+B end 12:43:54 load 9.10 9.32 9.44
+round 6
+B start 12:43:54 load 9.10 9.32 9.44
+B end 12:44:32 load 9.10 9.29 9.42
+A start 12:44:32 load 9.10 9.29 9.42
+A end 12:45:47 load 9.11 9.25 9.40
+DONE2

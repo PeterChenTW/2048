@@ -69,6 +69,10 @@ def parser():
                                         'onehot_afterstate'), default='legacy')
     train.add_argument('--afterstate-expand', choices=('reference', 'vectorized'),
                        default='reference', help='afterstate expansion backend (onehot_afterstate only)')
+    train.add_argument('--td-inference-mode', action='store_true',
+                       help='use inference_mode for TD targets (onehot_afterstate only)')
+    train.add_argument('--td-forward', choices=('reference', 'fast'), default='reference',
+                       help='TD forward backend (onehot_afterstate only; fast reserved for V2 stage 2)')
     train.add_argument('--n-step', type=positive_int, default=1)
     train.add_argument('--restart-frac', type=fraction, default=0.0,
                        help='fraction of episodes started from own reached boards (default: off)')
@@ -92,6 +96,8 @@ def parser():
     train.add_argument('--seed', type=int)
     train.add_argument('--log', help='episode CSV (default: results/train_<output name>.csv)')
     train.add_argument('--threads', type=positive_int, default=1)
+    train.add_argument('--interop-threads', type=positive_int, default=None,
+                       help='set PyTorch inter-op threads once before model work (all architectures)')
     train.add_argument('--replay-every', type=positive_int, default=4)
     train.add_argument('--replay-ratio', type=nonnegative_float,
                        help='gradient updates per env step (e.g. 0.78); overrides --replay-every')
@@ -117,6 +123,18 @@ def mean(values):
     return statistics.fmean(values) if values else None
 
 
+def _configure_threads(args):
+    import torch
+
+    if args.interop_threads is not None:
+        try:
+            torch.set_num_interop_threads(args.interop_threads)
+        except RuntimeError as exc:
+            raise RuntimeError('--interop-threads must be set once, before any PyTorch '
+                               'parallel work; inter-op threads are already initialized or set') from exc
+    torch.set_num_threads(args.threads)
+
+
 def train(args):
     import numpy as np
     import torch
@@ -128,9 +146,13 @@ def train(args):
 
     if args.arch != 'onehot_afterstate' and args.afterstate_expand != 'reference':
         raise ValueError('--afterstate-expand vectorized requires --arch onehot_afterstate')
-    torch.set_num_threads(args.threads)
+    if (args.arch != 'onehot_afterstate' and
+            (args.td_inference_mode or args.td_forward != 'reference')):
+        raise ValueError('--td-inference-mode / --td-forward fast require --arch onehot_afterstate')
+    _configure_threads(args)
     config_args = {'seed': args.seed, 'arch': args.arch, 'n_step': args.n_step,
                    'afterstate_expand': args.afterstate_expand,
+                   'td_inference_mode': args.td_inference_mode, 'td_forward': args.td_forward,
                    'restart_frac': args.restart_frac, 'restart_pool_size': args.restart_pool_size}
     if args.gamma is not None:
         config_args['gamma'] = args.gamma
@@ -173,6 +195,8 @@ def train(args):
             raise
         # Training options come from the CLI, including the expansion backend.
         config.afterstate_expand = args.afterstate_expand
+        config.td_inference_mode = args.td_inference_mode
+        config.td_forward = args.td_forward
         print(f'Loaded checkpoint: {args.checkpoint}', flush=True)
     else:
         print('Starting from scratch', flush=True)
@@ -366,6 +390,9 @@ def train(args):
                          'max': max(values) if values else None}
     summary = dict(arch=config.arch, n_step=config.n_step,
                    afterstate_expand=config.afterstate_expand,
+                   td_inference_mode=config.td_inference_mode, td_forward=config.td_forward,
+                   threads=args.threads, interop_threads=torch.get_num_interop_threads(),
+                   interop_threads_requested=args.interop_threads,
                    memory_capacity=config.memory_capacity,
                    per_max_priority=config.per_max_priority,
                    track_replay_age=config.track_replay_age,

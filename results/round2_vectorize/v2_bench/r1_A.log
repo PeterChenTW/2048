@@ -1,0 +1,38 @@
+
+================================================================================
+--- Round 1/1 [Start: 2026-10-18 12:31:18 CST | loadavg: 10.29, 10.49, 9.57] ---
+Variant Order: ['ref', 't1', 't1_tdinf', 't1_fast', 'all_t1', 'all_t2']
+================================================================================
+
+>>> Running Variant: 'ref' (expand=reference, threads=2, tdinf=None, tdfwd=None, seed=1)
+[ref] Filling buffer to capacity (6000 transitions)...
+  -> Buffer filled (size=6000, added 6000 in 62.17s)
+[ref] Measuring C: mixed training (12.0s, replay_ratio=0.45)...
+  -> 6.0 env steps/s, 2.7 updates/s (72 steps, 32 updates in 12.03s)
+
+>>> Running Variant: 't1' (expand=reference, threads=1, tdinf=None, tdfwd=None, seed=1)
+[t1] Filling buffer to capacity (6000 transitions)...
+  -> Buffer filled (size=6000, added 6000 in 5.74s)
+[t1] Measuring C: mixed training (12.0s, replay_ratio=0.45)...
+  -> 66.7 env steps/s, 30.0 updates/s (801 steps, 360 updates in 12.01s)
+
+>>> Running Variant: 't1_tdinf' (expand=reference, threads=1, tdinf=True, tdfwd=None, seed=1)
+[t1_tdinf] Filling buffer to capacity (6000 transitions)...
+  -> Buffer filled (size=6000, added 6000 in 6.19s)
+[t1_tdinf] Measuring C: mixed training (12.0s, replay_ratio=0.45)...
+  -> 67.2 env steps/s, 30.2 updates/s (807 steps, 363 updates in 12.01s)
+
+>>> Running Variant: 't1_fast' (expand=reference, threads=1, tdinf=None, tdfwd=fast, seed=1)
+[t1_fast] Filling buffer to capacity (6000 transitions)...
+  -> Buffer filled (size=6000, added 6000 in 5.89s)
+[t1_fast] Measuring C: mixed training (12.0s, replay_ratio=0.45)...
+  -> 69.4 env steps/s, 31.2 updates/s (834 steps, 375 updates in 12.02s)
+
+>>> Running Variant: 'all_t1' (expand=vectorized, threads=1, tdinf=True, tdfwd=fast, seed=1)
+[all_t1] Filling buffer to capacity (6000 transitions)...
+  -> Buffer filled (size=6000, added 6000 in 6.08s)
+[all_t1] Measuring C: mixed training (12.0s, replay_ratio=0.45)...
+  -> 67.8 env steps/s, 30.5 updates/s (814 steps, 366 updates in 12.01s)
+
+>>> Running Variant: 'all_t2' (expand=vectorized, threads=2, tdinf=True, tdfwd=fast, seed=1)
+[all_t2] Filling buffer to capacity (6000 transitions)...

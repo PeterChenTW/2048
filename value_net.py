@@ -54,6 +54,9 @@ class OneHotValueNet(nn.Module):
         """Raw tile values (N,16)/(N,4,4)/(16,) -> flattened trunk features (N, F)."""
         return self.trunk.forward_features(x)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, *, encoded: bool = False) -> torch.Tensor:
         """Return V of shape (N,) float32 (N=1 for a single 16-vector board)."""
+        if encoded:
+            # TD fast reuses the online encoding for the chosen target boards.
+            return self.head(self.trunk.forward_onehot_features(x)).squeeze(-1)
         return self.head(self.forward_features(x)).squeeze(-1)

@@ -1,0 +1,63 @@
+
+================================================================================
+--- Round 1/1 [Start: 2026-10-18 12:36:54 CST | loadavg: 9.46, 9.96, 9.63] ---
+Variant Order: ['t1', 't1_tdinf', 't1_fast', 'all_t1']
+================================================================================
+
+>>> Running Variant: 't1' (expand=reference, threads=1, tdinf=None, tdfwd=None, seed=2)
+[t1] Filling buffer to capacity (6000 transitions)...
+  -> Buffer filled (size=6000, added 6000 in 6.20s)
+[t1] Measuring C: mixed training (12.0s, replay_ratio=0.45)...
+  -> 63.7 env steps/s, 28.6 updates/s (765 steps, 344 updates in 12.02s)
+
+>>> Running Variant: 't1_tdinf' (expand=reference, threads=1, tdinf=True, tdfwd=None, seed=2)
+[t1_tdinf] Filling buffer to capacity (6000 transitions)...
+  -> Buffer filled (size=6000, added 6000 in 5.91s)
+[t1_tdinf] Measuring C: mixed training (12.0s, replay_ratio=0.45)...
+  -> 63.6 env steps/s, 28.6 updates/s (763 steps, 343 updates in 12.00s)
+
+>>> Running Variant: 't1_fast' (expand=reference, threads=1, tdinf=None, tdfwd=fast, seed=2)
+[t1_fast] Filling buffer to capacity (6000 transitions)...
+  -> Buffer filled (size=6000, added 6000 in 5.91s)
+[t1_fast] Measuring C: mixed training (12.0s, replay_ratio=0.45)...
+  -> 67.5 env steps/s, 30.4 updates/s (812 steps, 365 updates in 12.02s)
+
+>>> Running Variant: 'all_t1' (expand=vectorized, threads=1, tdinf=True, tdfwd=fast, seed=2)
+[all_t1] Filling buffer to capacity (6000 transitions)...
+  -> Buffer filled (size=6000, added 6000 in 6.47s)
+[all_t1] Measuring C: mixed training (12.0s, replay_ratio=0.45)...
+  -> 68.6 env steps/s, 30.9 updates/s (825 steps, 371 updates in 12.02s)
+
+--- End of Round 1/1 [End: 2026-10-18 12:38:07 CST | loadavg: 9.25, 9.78, 9.59] ---
+
+[Round 1/1 Summary Table (Baseline: 't1')]
+Variant         | Threads         | C: Steps/s      | C: Upd/s        | Ratio (Steps)   | Ratio (Upd)    
+----------------+-----------------+-----------------+-----------------+-----------------+----------------
+t1              | 1               |            63.7 |           28.63 |           1.00x |           1.00x
+t1_tdinf        | 1               |            63.6 |           28.58 |           1.00x |           1.00x
+t1_fast         | 1               |            67.5 |           30.36 |           1.06x |           1.06x
+all_t1          | 1               |            68.6 |           30.86 |           1.08x |           1.08x
+----------------+-----------------+-----------------+-----------------+-----------------+----------------
+
+================================================================================
+2048 Microbenchmark Final Summary (1 round(s), Baseline: 't1')
+Measures: C | Order: abba | Duration: 12.0s/phase
+================================================================================
+
+Variant: 't1' (expand=reference, threads=1, tdinf=None, tdfwd=None)
+  (Baseline)
+
+Variant: 't1_tdinf' (expand=reference, threads=1, tdinf=True, tdfwd=None)
+  Measure C env steps/s ratio: [1.00x] -> Median: 1.00x
+  Measure C updates/s ratio:   [1.00x] -> Median: 1.00x
+
+Variant: 't1_fast' (expand=reference, threads=1, tdinf=None, tdfwd=fast)
+  Measure C env steps/s ratio: [1.06x] -> Median: 1.06x
+  Measure C updates/s ratio:   [1.06x] -> Median: 1.06x
+
+Variant: 'all_t1' (expand=vectorized, threads=1, tdinf=True, tdfwd=fast)
+  Measure C env steps/s ratio: [1.08x] -> Median: 1.08x
+  Measure C updates/s ratio:   [1.08x] -> Median: 1.08x
+================================================================================
+
+Saved benchmark results to /workspace/rl2048-review/vec-work/v2_bench/r2_A.json

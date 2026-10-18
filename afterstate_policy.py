@@ -12,6 +12,9 @@ import torch
 
 from afterstate import EXPAND_MODES, afterstates, batch_afterstates
 from rewards import merge_rewards
+from rewards import _validate_options
+from encoding import log2_onehot_torch
+from value_net import OneHotValueNet
 
 
 class LegalityMismatchError(ValueError, AssertionError):
@@ -162,6 +165,47 @@ def _score_expanded(model, expanded, gamma, reward_mode, reward_scale):
         scores[legal_mask] = r_legal + float(gamma) * v_legal_t
 
     return AfterstateScores(after=after, rewards=rewards, legal=legal, scores=scores)
+
+
+class TDAfterstateScores(NamedTuple):
+    """Compact legal boards and their shared encoding, used only by TD fast."""
+
+    after: torch.Tensor
+    onehot: torch.Tensor | None
+    rewards: torch.Tensor
+    legal: torch.Tensor
+    scores: torch.Tensor
+
+
+def _td_afterstate_scores(model, grids, gamma, reward_mode, reward_scale, expand):
+    """Tensor-only scoring after expansion; keep action order and float32 rounding."""
+    _validate_options(reward_mode, reward_scale)
+    after, merge, legal_np = batch_afterstates(_normalize_grids(grids), expand=expand)
+    legal = torch.from_numpy(legal_np)
+    # Retain int64 tiles for validation/encoding; no float32 -> int64 round trip.
+    legal_after = torch.from_numpy(after)[legal]
+    # Reference shapes rewards in float64, then rounds once to float32.
+    rewards = torch.from_numpy(merge).to(torch.float64)
+    if reward_mode == 'log':
+        rewards = torch.log2(1 + rewards) / 16
+    else:
+        rewards = rewards / reward_scale
+    rewards = rewards.to(torch.float32).masked_fill_(~legal, 0)
+    scores = rewards.clone()
+    onehot = None
+    if len(legal_after):
+        if isinstance(model, OneHotValueNet):
+            onehot = log2_onehot_torch(legal_after)
+            values = model(onehot, encoded=True)
+        else:
+            # Preserve support for policy test doubles/custom scalar networks.
+            values = model(legal_after.to(torch.float32))
+        values = values.detach().cpu().to(torch.float32).reshape(-1)
+        if values.numel() != len(legal_after):
+            raise ValueError('model returned wrong number of legal afterstate values')
+        scores[legal] = rewards[legal] + float(gamma) * values
+    scores.masked_fill_(~legal, -torch.inf)
+    return TDAfterstateScores(legal_after, onehot, rewards, legal, scores)
 
 
 def greedy_actions(

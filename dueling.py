@@ -97,6 +97,10 @@ class OneHotDuelingDQN(nn.Module):
         if not isinstance(x, torch.Tensor):
             x = torch.as_tensor(x, dtype=torch.float32)
         onehot = log2_onehot_torch(x)
+        return self.forward_onehot_features(onehot)
+
+    def forward_onehot_features(self, onehot: torch.Tensor) -> torch.Tensor:
+        """Extract the same trunk features from an already validated encoding."""
         onehot = onehot.to(device=self.conv_h.weight.device, dtype=self.conv_h.weight.dtype)
 
         h = F.relu(self.conv_h(onehot))

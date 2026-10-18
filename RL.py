@@ -122,6 +122,11 @@ class DDQNAgent:
         if self.config.arch not in ('legacy', 'onehot_dueling', 'onehot_conv2x2',
                                     'onehot_afterstate'):
             raise ValueError(f'unknown architecture: {self.config.arch}')
+        if self.config.td_forward not in ('reference', 'fast'):
+            raise ValueError(f'unknown td_forward: {self.config.td_forward}')
+        if (self.config.arch != 'onehot_afterstate' and
+                (self.config.td_inference_mode or self.config.td_forward != 'reference')):
+            raise ValueError('TD forward options require arch=onehot_afterstate')
         if self.config.arch == 'onehot_afterstate':
             from afterstate_agent import AfterstateAgent
             if not isinstance(self, AfterstateAgent):
@@ -295,7 +300,10 @@ class DDQNAgent:
         self.model.load_state_dict(state, strict=True)
         self.update_target_model()
         if arch == 'onehot_afterstate':
-            self.config.afterstate_expand = payload.get('config', {}).get('afterstate_expand', 'reference')
+            saved_config = payload.get('config', {})
+            self.config.afterstate_expand = saved_config.get('afterstate_expand', 'reference')
+            self.config.td_inference_mode = saved_config.get('td_inference_mode', False)
+            self.config.td_forward = saved_config.get('td_forward', 'reference')
             self.last_after_state = None
 
     def save(self, name):

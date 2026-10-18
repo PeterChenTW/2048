@@ -1,0 +1,20 @@
+
+================================================================================
+--- Round 1/1 [Start: 2026-10-18 12:29:02 CST | loadavg: 10.86, 10.11, 9.29] ---
+Variant Order: ['ref_i1', 't1_i1', 'all_t2_i1', 'all_t1_i1']
+================================================================================
+
+>>> Running Variant: 'ref_i1' (expand=reference, threads=2, tdinf=None, tdfwd=None, seed=2)
+[ref_i1] Filling buffer to capacity (6000 transitions)...
+  -> Buffer filled (size=6000, added 6000 in 56.84s)
+[ref_i1] Measuring C: mixed training (15.0s, replay_ratio=0.45)...
+  -> 12.3 env steps/s, 5.5 updates/s (185 steps, 83 updates in 15.01s)
+
+>>> Running Variant: 't1_i1' (expand=reference, threads=1, tdinf=None, tdfwd=None, seed=2)
+[t1_i1] Filling buffer to capacity (6000 transitions)...
+  -> Buffer filled (size=6000, added 6000 in 6.10s)
+[t1_i1] Measuring C: mixed training (15.0s, replay_ratio=0.45)...
+  -> 57.1 env steps/s, 25.7 updates/s (856 steps, 385 updates in 15.00s)
+
+>>> Running Variant: 'all_t2_i1' (expand=vectorized, threads=2, tdinf=True, tdfwd=fast, seed=2)
+[all_t2_i1] Filling buffer to capacity (6000 transitions)...

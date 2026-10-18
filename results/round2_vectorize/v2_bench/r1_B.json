@@ -1,0 +1,104 @@
+{
+  "timestamp": "2026-10-18T12:36:11.342482+08:00",
+  "config": {
+    "variants": [
+      {
+        "name": "ref_i1",
+        "expand": "reference",
+        "threads": 2,
+        "tdinf": null,
+        "tdfwd": null
+      },
+      {
+        "name": "all_t1_i1",
+        "expand": "vectorized",
+        "threads": 1,
+        "tdinf": true,
+        "tdfwd": "fast"
+      }
+    ],
+    "baseline": "ref_i1",
+    "measures": [
+      "C"
+    ],
+    "rounds": 1,
+    "order": "abba",
+    "seconds": 12.0,
+    "seed": 1,
+    "interop_threads": 1
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "order": [
+        "ref_i1",
+        "all_t1_i1"
+      ],
+      "start_time": "2026-10-18 12:34:30 CST",
+      "end_time": "2026-10-18 12:36:11 CST",
+      "loadavg_start": [
+        10.01953125,
+        10.20849609375,
+        9.63720703125
+      ],
+      "loadavg_end": [
+        9.806640625,
+        10.08544921875,
+        9.6533203125
+      ],
+      "results": {
+        "ref_i1": {
+          "measure_c": {
+            "env_steps": 61,
+            "updates": 27,
+            "elapsed_sec": 12.06706925999606,
+            "env_steps_per_sec": 5.055079960651516,
+            "updates_per_sec": 2.237494408812966
+          }
+        },
+        "all_t1_i1": {
+          "measure_c": {
+            "env_steps": 610,
+            "updates": 274,
+            "elapsed_sec": 12.034958816999278,
+            "env_steps_per_sec": 50.68567406631921,
+            "updates_per_sec": 22.767007695363052
+          }
+        }
+      },
+      "errors": {},
+      "ratios_vs_baseline": {
+        "ref_i1": {
+          "env_steps_ratio": 1.0,
+          "updates_ratio": 1.0
+        },
+        "all_t1_i1": {
+          "env_steps_ratio": 10.026680974555083,
+          "updates_ratio": 10.175224396400342
+        }
+      }
+    }
+  ],
+  "summary": {
+    "ref_i1": {
+      "env_steps_ratio_list": [
+        1.0
+      ],
+      "env_steps_ratio_median": 1.0,
+      "updates_ratio_list": [
+        1.0
+      ],
+      "updates_ratio_median": 1.0
+    },
+    "all_t1_i1": {
+      "env_steps_ratio_list": [
+        10.026680974555083
+      ],
+      "env_steps_ratio_median": 10.026680974555083,
+      "updates_ratio_list": [
+        10.175224396400342
+      ],
+      "updates_ratio_median": 10.175224396400342
+    }
+  }
+}

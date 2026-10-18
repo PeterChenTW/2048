@@ -1,0 +1,21 @@
+round 1
+A start 12:31:08 load 10.53 10.54 9.58
+A end 12:34:29 load 10.11 10.23 9.64
+B start 12:34:29 load 10.11 10.23 9.64
+B end 12:36:12 load 9.81 10.09 9.65
+round 2
+B start 12:36:12 load 9.81 10.09 9.65
+B end 12:36:52 load 9.46 9.96 9.63
+A start 12:36:52 load 9.46 9.96 9.63
+A end 12:38:07 load 9.25 9.78 9.59
+round 3
+A start 12:38:07 load 9.25 9.78 9.59
+A end 12:39:22 load 9.21 9.66 9.56
+B start 12:39:22 load 9.21 9.66 9.56
+B end 12:40:00 load 9.11 9.57 9.54
+round 4
+B start 12:40:00 load 9.11 9.57 9.54
+B end 12:40:38 load 9.20 9.54 9.53
+A start 12:40:38 load 9.20 9.54 9.53
+A end 12:41:54 load 9.08 9.43 9.49
+DONE

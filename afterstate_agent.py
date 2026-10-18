@@ -2,7 +2,8 @@
 import numpy as np
 import torch
 
-from afterstate_policy import afterstate_scores, select_action
+from afterstate_policy import afterstate_scores, select_action, _td_afterstate_scores
+from value_net import OneHotValueNet
 from config import DQNConfig
 from RL import DDQNAgent
 
@@ -50,8 +51,18 @@ class AfterstateAgent(DDQNAgent):
                       self._state_tensor(next_state).clone(), bool(done))
         self._remember_transition(transition)
 
-    @torch.no_grad()
     def _targets(self, next_states, dones):
+        context = torch.inference_mode if self.config.td_inference_mode else torch.no_grad
+        with context():
+            if self.config.td_forward == 'fast':
+                targets = self._targets_fast(next_states, dones)
+            else:
+                targets = self._targets_reference(next_states, dones)
+        # Clone outside inference_mode so callers can use targets in autograd
+        # operations that save their inputs (as well as the replay loss).
+        return targets.clone() if self.config.td_inference_mode else targets
+
+    def _targets_reference(self, next_states, dones):
         """Online selects r + gamma*V; target evaluates that same legal action.
 
         Neither the reward nor the exploratory action of the stored move belongs
@@ -70,6 +81,28 @@ class AfterstateAgent(DDQNAgent):
             values = self.target_model(chosen_after).reshape(-1)
             rewards = torch.as_tensor(result.rewards[rows, choices], dtype=torch.float32)
             targets[active[rows]] = rewards + self.config.gamma * values
+        return targets
+
+    def _targets_fast(self, next_states, dones):
+        """One legal online batch, one chosen target batch, one shared encoding."""
+        targets = torch.zeros(len(next_states), dtype=torch.float32)
+        active = torch.nonzero(~dones, as_tuple=True)[0]
+        if not len(active):
+            return targets
+        result = _td_afterstate_scores(self.model, next_states[active], **self._reward_options())
+        rows = torch.nonzero(result.legal.any(dim=1), as_tuple=True)[0]
+        if not len(rows):
+            return targets
+        # Exactly the reference argmax, including ties and illegal -inf entries.
+        choices = result.scores[rows].argmax(dim=1)
+        # Map (row, action) to the compact legal batch, without reconverting boards.
+        compact = result.legal.reshape(-1).cumsum(0).reshape(-1, 4) - 1
+        selected = compact[rows, choices]
+        if result.onehot is not None and isinstance(self.target_model, OneHotValueNet):
+            values = self.target_model(result.onehot[selected], encoded=True).reshape(-1)
+        else:
+            values = self.target_model(result.after[selected].to(torch.float32)).reshape(-1)
+        targets[active[rows]] = result.rewards[rows, choices] + self.config.gamma * values
         return targets
 
     def replay(self, batch_size=None):
