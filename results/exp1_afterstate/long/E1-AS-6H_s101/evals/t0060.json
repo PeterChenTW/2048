@@ -1,0 +1,623 @@
+{
+  "games": 100,
+  "policy": "greedy",
+  "board": "fast",
+  "mean": 5002.64,
+  "median": 5006.0,
+  "max": 12108,
+  "max_tile_distribution": {
+    "128": 6,
+    "256": 42,
+    "512": 47,
+    "1024": 5
+  },
+  "reach_rates": {
+    "512": 0.52,
+    "1024": 0.05,
+    "2048": 0.0,
+    "4096": 0.0
+  },
+  "elapsed_seconds": 82.43239772899688,
+  "per_game": [
+    {
+      "seed": 1000,
+      "score": 7040,
+      "max_tile": 512,
+      "steps": 477
+    },
+    {
+      "seed": 1001,
+      "score": 6848,
+      "max_tile": 512,
+      "steps": 461
+    },
+    {
+      "seed": 1002,
+      "score": 3356,
+      "max_tile": 256,
+      "steps": 260
+    },
+    {
+      "seed": 1003,
+      "score": 9260,
+      "max_tile": 512,
+      "steps": 594
+    },
+    {
+      "seed": 1004,
+      "score": 2080,
+      "max_tile": 256,
+      "steps": 177
+    },
+    {
+      "seed": 1005,
+      "score": 6220,
+      "max_tile": 512,
+      "steps": 431
+    },
+    {
+      "seed": 1006,
+      "score": 6852,
+      "max_tile": 512,
+      "steps": 472
+    },
+    {
+      "seed": 1007,
+      "score": 1496,
+      "max_tile": 128,
+      "steps": 158
+    },
+    {
+      "seed": 1008,
+      "score": 3904,
+      "max_tile": 256,
+      "steps": 317
+    },
+    {
+      "seed": 1009,
+      "score": 1412,
+      "max_tile": 128,
+      "steps": 144
+    },
+    {
+      "seed": 1010,
+      "score": 7016,
+      "max_tile": 512,
+      "steps": 472
+    },
+    {
+      "seed": 1011,
+      "score": 5264,
+      "max_tile": 512,
+      "steps": 360
+    },
+    {
+      "seed": 1012,
+      "score": 3208,
+      "max_tile": 256,
+      "steps": 269
+    },
+    {
+      "seed": 1013,
+      "score": 3096,
+      "max_tile": 256,
+      "steps": 248
+    },
+    {
+      "seed": 1014,
+      "score": 3300,
+      "max_tile": 256,
+      "steps": 273
+    },
+    {
+      "seed": 1015,
+      "score": 1424,
+      "max_tile": 128,
+      "steps": 146
+    },
+    {
+      "seed": 1016,
+      "score": 1184,
+      "max_tile": 128,
+      "steps": 132
+    },
+    {
+      "seed": 1017,
+      "score": 6708,
+      "max_tile": 512,
+      "steps": 463
+    },
+    {
+      "seed": 1018,
+      "score": 3200,
+      "max_tile": 256,
+      "steps": 269
+    },
+    {
+      "seed": 1019,
+      "score": 2492,
+      "max_tile": 256,
+      "steps": 216
+    },
+    {
+      "seed": 1020,
+      "score": 3148,
+      "max_tile": 256,
+      "steps": 262
+    },
+    {
+      "seed": 1021,
+      "score": 6128,
+      "max_tile": 512,
+      "steps": 410
+    },
+    {
+      "seed": 1022,
+      "score": 4348,
+      "max_tile": 256,
+      "steps": 316
+    },
+    {
+      "seed": 1023,
+      "score": 10568,
+      "max_tile": 1024,
+      "steps": 618
+    },
+    {
+      "seed": 1024,
+      "score": 2972,
+      "max_tile": 256,
+      "steps": 243
+    },
+    {
+      "seed": 1025,
+      "score": 5464,
+      "max_tile": 512,
+      "steps": 381
+    },
+    {
+      "seed": 1026,
+      "score": 3136,
+      "max_tile": 256,
+      "steps": 258
+    },
+    {
+      "seed": 1027,
+      "score": 6464,
+      "max_tile": 512,
+      "steps": 439
+    },
+    {
+      "seed": 1028,
+      "score": 7012,
+      "max_tile": 512,
+      "steps": 474
+    },
+    {
+      "seed": 1029,
+      "score": 3216,
+      "max_tile": 256,
+      "steps": 271
+    },
+    {
+      "seed": 1030,
+      "score": 5376,
+      "max_tile": 512,
+      "steps": 376
+    },
+    {
+      "seed": 1031,
+      "score": 6536,
+      "max_tile": 512,
+      "steps": 453
+    },
+    {
+      "seed": 1032,
+      "score": 4964,
+      "max_tile": 512,
+      "steps": 347
+    },
+    {
+      "seed": 1033,
+      "score": 7192,
+      "max_tile": 512,
+      "steps": 498
+    },
+    {
+      "seed": 1034,
+      "score": 3308,
+      "max_tile": 256,
+      "steps": 258
+    },
+    {
+      "seed": 1035,
+      "score": 7236,
+      "max_tile": 512,
+      "steps": 504
+    },
+    {
+      "seed": 1036,
+      "score": 2876,
+      "max_tile": 256,
+      "steps": 240
+    },
+    {
+      "seed": 1037,
+      "score": 1352,
+      "max_tile": 128,
+      "steps": 140
+    },
+    {
+      "seed": 1038,
+      "score": 7940,
+      "max_tile": 512,
+      "steps": 526
+    },
+    {
+      "seed": 1039,
+      "score": 7112,
+      "max_tile": 512,
+      "steps": 490
+    },
+    {
+      "seed": 1040,
+      "score": 3144,
+      "max_tile": 256,
+      "steps": 258
+    },
+    {
+      "seed": 1041,
+      "score": 4456,
+      "max_tile": 512,
+      "steps": 301
+    },
+    {
+      "seed": 1042,
+      "score": 6424,
+      "max_tile": 512,
+      "steps": 434
+    },
+    {
+      "seed": 1043,
+      "score": 3088,
+      "max_tile": 256,
+      "steps": 257
+    },
+    {
+      "seed": 1044,
+      "score": 3036,
+      "max_tile": 256,
+      "steps": 249
+    },
+    {
+      "seed": 1045,
+      "score": 7084,
+      "max_tile": 512,
+      "steps": 481
+    },
+    {
+      "seed": 1046,
+      "score": 5324,
+      "max_tile": 512,
+      "steps": 371
+    },
+    {
+      "seed": 1047,
+      "score": 2404,
+      "max_tile": 256,
+      "steps": 208
+    },
+    {
+      "seed": 1048,
+      "score": 3128,
+      "max_tile": 256,
+      "steps": 257
+    },
+    {
+      "seed": 1049,
+      "score": 5460,
+      "max_tile": 512,
+      "steps": 381
+    },
+    {
+      "seed": 1050,
+      "score": 6700,
+      "max_tile": 512,
+      "steps": 466
+    },
+    {
+      "seed": 1051,
+      "score": 12108,
+      "max_tile": 1024,
+      "steps": 716
+    },
+    {
+      "seed": 1052,
+      "score": 3196,
+      "max_tile": 256,
+      "steps": 271
+    },
+    {
+      "seed": 1053,
+      "score": 2680,
+      "max_tile": 256,
+      "steps": 216
+    },
+    {
+      "seed": 1054,
+      "score": 3040,
+      "max_tile": 256,
+      "steps": 245
+    },
+    {
+      "seed": 1055,
+      "score": 5012,
+      "max_tile": 256,
+      "steps": 373
+    },
+    {
+      "seed": 1056,
+      "score": 2460,
+      "max_tile": 256,
+      "steps": 212
+    },
+    {
+      "seed": 1057,
+      "score": 5684,
+      "max_tile": 512,
+      "steps": 398
+    },
+    {
+      "seed": 1058,
+      "score": 6748,
+      "max_tile": 512,
+      "steps": 467
+    },
+    {
+      "seed": 1059,
+      "score": 6740,
+      "max_tile": 512,
+      "steps": 458
+    },
+    {
+      "seed": 1060,
+      "score": 6376,
+      "max_tile": 512,
+      "steps": 427
+    },
+    {
+      "seed": 1061,
+      "score": 3200,
+      "max_tile": 256,
+      "steps": 268
+    },
+    {
+      "seed": 1062,
+      "score": 5000,
+      "max_tile": 512,
+      "steps": 342
+    },
+    {
+      "seed": 1063,
+      "score": 10504,
+      "max_tile": 1024,
+      "steps": 619
+    },
+    {
+      "seed": 1064,
+      "score": 7132,
+      "max_tile": 512,
+      "steps": 487
+    },
+    {
+      "seed": 1065,
+      "score": 5828,
+      "max_tile": 512,
+      "steps": 374
+    },
+    {
+      "seed": 1066,
+      "score": 11116,
+      "max_tile": 1024,
+      "steps": 658
+    },
+    {
+      "seed": 1067,
+      "score": 3132,
+      "max_tile": 256,
+      "steps": 263
+    },
+    {
+      "seed": 1068,
+      "score": 6408,
+      "max_tile": 512,
+      "steps": 442
+    },
+    {
+      "seed": 1069,
+      "score": 3980,
+      "max_tile": 256,
+      "steps": 320
+    },
+    {
+      "seed": 1070,
+      "score": 5904,
+      "max_tile": 512,
+      "steps": 404
+    },
+    {
+      "seed": 1071,
+      "score": 5492,
+      "max_tile": 512,
+      "steps": 389
+    },
+    {
+      "seed": 1072,
+      "score": 6476,
+      "max_tile": 512,
+      "steps": 441
+    },
+    {
+      "seed": 1073,
+      "score": 3456,
+      "max_tile": 256,
+      "steps": 288
+    },
+    {
+      "seed": 1074,
+      "score": 3048,
+      "max_tile": 256,
+      "steps": 247
+    },
+    {
+      "seed": 1075,
+      "score": 3000,
+      "max_tile": 256,
+      "steps": 246
+    },
+    {
+      "seed": 1076,
+      "score": 3084,
+      "max_tile": 256,
+      "steps": 250
+    },
+    {
+      "seed": 1077,
+      "score": 3008,
+      "max_tile": 256,
+      "steps": 248
+    },
+    {
+      "seed": 1078,
+      "score": 3356,
+      "max_tile": 256,
+      "steps": 276
+    },
+    {
+      "seed": 1079,
+      "score": 6444,
+      "max_tile": 512,
+      "steps": 434
+    },
+    {
+      "seed": 1080,
+      "score": 3808,
+      "max_tile": 256,
+      "steps": 309
+    },
+    {
+      "seed": 1081,
+      "score": 7128,
+      "max_tile": 512,
+      "steps": 483
+    },
+    {
+      "seed": 1082,
+      "score": 2472,
+      "max_tile": 256,
+      "steps": 211
+    },
+    {
+      "seed": 1083,
+      "score": 3184,
+      "max_tile": 256,
+      "steps": 261
+    },
+    {
+      "seed": 1084,
+      "score": 6312,
+      "max_tile": 512,
+      "steps": 423
+    },
+    {
+      "seed": 1085,
+      "score": 1680,
+      "max_tile": 128,
+      "steps": 166
+    },
+    {
+      "seed": 1086,
+      "score": 2964,
+      "max_tile": 256,
+      "steps": 235
+    },
+    {
+      "seed": 1087,
+      "score": 6020,
+      "max_tile": 512,
+      "steps": 419
+    },
+    {
+      "seed": 1088,
+      "score": 5228,
+      "max_tile": 512,
+      "steps": 353
+    },
+    {
+      "seed": 1089,
+      "score": 6188,
+      "max_tile": 512,
+      "steps": 439
+    },
+    {
+      "seed": 1090,
+      "score": 7048,
+      "max_tile": 512,
+      "steps": 485
+    },
+    {
+      "seed": 1091,
+      "score": 6472,
+      "max_tile": 512,
+      "steps": 435
+    },
+    {
+      "seed": 1092,
+      "score": 3180,
+      "max_tile": 256,
+      "steps": 264
+    },
+    {
+      "seed": 1093,
+      "score": 10296,
+      "max_tile": 1024,
+      "steps": 601
+    },
+    {
+      "seed": 1094,
+      "score": 8900,
+      "max_tile": 512,
+      "steps": 614
+    },
+    {
+      "seed": 1095,
+      "score": 3228,
+      "max_tile": 256,
+      "steps": 270
+    },
+    {
+      "seed": 1096,
+      "score": 3044,
+      "max_tile": 256,
+      "steps": 247
+    },
+    {
+      "seed": 1097,
+      "score": 3028,
+      "max_tile": 256,
+      "steps": 241
+    },
+    {
+      "seed": 1098,
+      "score": 7136,
+      "max_tile": 512,
+      "steps": 490
+    },
+    {
+      "seed": 1099,
+      "score": 7380,
+      "max_tile": 512,
+      "steps": 513
+    }
+  ]
+}
