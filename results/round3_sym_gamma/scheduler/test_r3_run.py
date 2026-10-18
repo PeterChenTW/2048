@@ -268,6 +268,12 @@ def test_batches_chain_in_order_and_verdicts(env, monkeypatch):
     assert sum("round3 第" in m["text"] for m in ms) == 3 and any(m["text"].startswith("round3 完成") for m in ms)
     text = (env / "STATUS.md").read_text()
     assert "交互作用" in text and "角落診斷" in text and "配對差" in text
+    # 每個 arm–C 比較都附 updates/s 比值與偏離註記（PM 16:43）
+    for arm in ("G", "Y", "GY"):
+        sec = text.split(f"### {arm}：")[1].split("###")[0].split("\n## ")[0]
+        assert "updates/s ×" in sec and "偏離紀錄（PM 10-18 16:43 核准）" in sec and "運算量校正的參考" in sec
+        for line in [l for l in sec.splitlines() if l.startswith("| ") and l[2:5].strip().isdigit()]:
+            assert line.split("|")[11].strip() not in ("", "—")  # updates/s 比值欄有數字
 
 
 def test_missing_data_is_not_pass(env, monkeypatch):

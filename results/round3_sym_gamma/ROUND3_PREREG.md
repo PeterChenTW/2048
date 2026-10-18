@@ -53,3 +53,10 @@
   - 理由 3：s303 的對照負載有記錄、是正式且乾淨的比較，排在最前面，正式對照先出結果。
 - 開跑條件：S 那批全部完成（4 個 S job 的 t180 `eval.json` 都有效，而且有 `eval_end`）、C_s303 的 t180 eval 存在、機器連續兩次檢查（間隔 ≥30 秒）都沒有 `main.py train`／`eval.py`、load1 < 3.0、開跑前旗標核對通過（實際命令列和本登記一致），以及固定 commit 核對通過。批與批之間自動接續。
 - 固定程式：`experiments/wt-round3-run`，detached HEAD 在本 PREREG 的 commit。
+
+## 偏離紀錄
+
+- **2026-10-18 16:43（台北），PM 核准**：批次設計從原先建議的「每批 4 個」改成 **3 批 × 3 個**（同一個 seed 的 G、Y、GY 放在同一批，依 s303 → s202 → s101 的順序），每批只用 6 核（`taskset -c 0-5`，3 個 job × 2 threads）。
+  - 影響：arm 和對照（LONG_s101／s202 的軌跡、C_s303）是在不同的負載下跑的。所以**每個 arm 對 C 的比較，旁邊都附 updates/s 比值（arm／C，即 train.json 的 updates／active_s）作為運算量校正的參考**；updates、env_steps 的比值照舊並列。
+  - **正式判定不變**：t180，每個 seed mean ≥×1.20 且 ≥1024 +10pp，三個 seed 全過才採用。不根據 updates/s 做任何校正或調整門檻。
+  - 自動產生的 ROUND3_RESULTS.md（`round3-run/r3_run.py`）在每個 arm 的判定表都有「updates/s ×」欄，表下附上這條註記；註記段落也重複一次。訓練程式和釘住的 commit（d70a972）都不變。

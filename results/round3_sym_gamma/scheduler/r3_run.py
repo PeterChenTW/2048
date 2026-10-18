@@ -14,6 +14,8 @@ TAIPEI = ZoneInfo("Asia/Taipei")
 EXP = Path("/workspace/rl2048-review/experiments")
 GAP = 60.0
 BUSY_SCRIPTS = {"eval.py", "r3_corner.py", "run_corner.py"}
+DEVIATION_NOTE = ("偏離紀錄（PM 10-18 16:43 核准）：批次由每批 4 個改為 3 批×3、只用 6 核（CPU 0–5），"
+                  "arm 與對照（LONG 軌跡、C_s303）的負載不同；updates/s 比值（arm／C）為運算量校正的參考，正式判定不變")
 
 
 def now():
@@ -683,6 +685,8 @@ class Scheduler:
                 L.append(f"| {r['seed']} | {a['mean']:.0f}／{100*a['r1024']:.0f}% | {c['mean']:.0f}／{100*c['r1024']:.0f}% | ×{r['ratio']:.2f} | {r['dmean']:+.0f} | {r['dpp']:+.0f}pp | "
                          f"{'過' if r['pass'] else '不過'} | {'達標' if r['abs_ok'] else '未達'} | {fmt(dg['updates'], '.2f')} | {fmt(dg['env_steps'], '.2f')} | {fmt(dg['ups'], '.2f')} | "
                          f"{fmt(a.get('load1'))}／{fmt(a.get('busy'))} | {fmt(c.get('load1'))} | {note} |")
+            L.append("")
+            L.append(f"{DEVIATION_NOTE}（{arm} 對 C 的 updates/s 比值見上表「updates/s ×」欄）")
             sp = v["spread"]
             if all(sp.values()):
                 L.append("")
@@ -722,7 +726,8 @@ class Scheduler:
               "- 對照在不同時段、不同負載下跑，只並列不校正；結果只能歸因於整套 arm 設定在 180 分鐘 active 預算下（含負載條件）的表現。",
               f"- s101／s202 的對照（LONG）updates/s 為 8 核滿載 C 的 ×1.19／×1.15；arm 在這兩個 seed 沒過時會加註「{self.cfg['compute_bias_flag']}」，判定不變。",
               "- s303 的對照 C_s303 在 15:56–16:03（台北）期間機器降速。",
-              "- G 的 loss／q 在 h 空間，不能和 C 比；只比 eval。"]
+              "- G 的 loss／q 在 h 空間，不能和 C 比；只比 eval。",
+              "- " + DEVIATION_NOTE + "。"]
         if alerts or st.get("alerted"):
             L += ["", "## 異常", ""] + [f"- {a}" for a in st.get("alerted", [])]
         if st.get("launch_error"):
