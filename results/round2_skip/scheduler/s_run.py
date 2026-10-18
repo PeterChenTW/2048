@@ -275,11 +275,13 @@ class Scheduler:
                 continue
             ratio = s["mean"] / c["mean"] if c["mean"] > 0 else None
             dpp = 100 * (s["r1024"] - c["r1024"])
-            cost_ratio = s["updates"] / c["updates"] if s["updates"] is not None and c["updates"] and c["updates"] > 0 else None
+            div = lambda a, b: a / b if a is not None and b is not None and b > 0 else None
+            # 修訂 2：三個 S/C 比值只作必報診斷，不影響採用與否。
+            diag = dict(updates=div(s["updates"], c["updates"]), env_steps=div(s["env_steps"], c["env_steps"]),
+                        ups=div(s["ups"], c["ups"]))
             score_ok = ratio is not None and ratio >= R["ratio"] and dpp >= R["pp_1024"] - 1e-9
-            cost_ok = cost_ratio is not None and cost_ratio >= R["cost_guard"]
-            rows.append(dict(seed=seed, pending=False, S=s, C=c, ratio=ratio, dpp=dpp, cost_ratio=cost_ratio,
-                             score_ok=score_ok, cost_ok=cost_ok, ok=score_ok and cost_ok,
+            rows.append(dict(seed=seed, pending=False, S=s, C=c, ratio=ratio, dpp=dpp, diag=diag,
+                             score_ok=score_ok, ok=score_ok,
                              abs_S=s["mean"] > R["abs_mean"] and s["r1024"] >= R["abs_r1024"],
                              abs_C=c["mean"] > R["abs_mean"] and c["r1024"] >= R["abs_r1024"]))
         pending = any(r["pending"] for r in rows)
@@ -399,7 +401,7 @@ class Scheduler:
 
     def finish_text(self, st):
         vs = self.verdicts(st)
-        txt = "；".join(f"s{v['seed']} ×{fmt(v['ratio'], '.2f')}/{v['dpp']:+.0f}pp 分數{'過' if v['score_ok'] else '不過'}、成本門{'過' if v['cost_ok'] else '不過'}" for v in vs["rows"])
+        txt = "；".join(f"s{v['seed']} ×{fmt(v['ratio'], '.2f')}/{v['dpp']:+.0f}pp 分數{'過' if v['score_ok'] else '不過'}（診斷 S/C：updates ×{fmt(v['diag']['updates'], '.2f')}、env_steps ×{fmt(v['diag']['env_steps'], '.2f')}、updates/s ×{fmt(v['diag']['ups'], '.2f')}）" for v in vs["rows"])
         loads = "；".join(f"批次{k} 平均 load1 {fmt(b.get('mean_load1'))}／忙碌核 {fmt(b.get('mean_busy_cores'))}" for k, b in st["batches"].items())
         return f"round2 S 完成：{txt} → {'採用 S' if vs['adopt'] else '在這個 CPU 預算下不採用'}（{vs['n_pass']}/3）；負載註記：{loads}（不跨批比較）"
 
@@ -500,19 +502,19 @@ class Scheduler:
                 status = "完成" if self.metrics(name) else "eval 中" if (d / "train.json").exists() and self.job_alive(name) else "訓練中" if self.job_alive(name) else "中斷／待判斷" if (d / "meta.json").exists() else "未開跑"
                 job_lines.append(f"- {name}：{status}")
         L += ["", *job_lines]
-        L += ["", "判定：每 seed mean 比值 ≥1.20、Δ≥1024 ≥+10pp，且 updates_S ≥0.85×updates_C；三個 seed 全過才採用。缺資料不視為通過。",
+        L += ["", "判定（S_PREREG 修訂 2）：每 seed mean 比值 ≥1.20 且 Δ≥1024 ≥+10pp（等時間分數門）；三個 seed 全過才採用。缺資料不視為通過。S/C 的 updates、env_steps、updates/s 比值為必報診斷，不影響判定。",
               "絕對目標：mean >15,000 且 ≥1024 ≥80%；三種子平均僅供探索。不同批次負載只註記，不跨批比較。", "",
-              "| seed（S 對同時段 C） | C mean／≥1024 | S mean／≥1024 | S/C | Δ≥1024 | 分數門 | 成本保護門（updates S/C） | 綜合判定 | 絕對目標 C／S | C／S updates | C／S env steps | C／S updates/s | 忙碌核 C／S |",
-              "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+              "| seed（S 對同時段 C） | C mean／≥1024 | S mean／≥1024 | S/C | Δ≥1024 | 分數門＝判定 | 診斷 S/C updates | 診斷 S/C env_steps | 診斷 S/C updates/s | 絕對目標 C／S | C／S updates | C／S env steps | C／S updates/s | 忙碌核 C／S |",
+              "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
         vs = self.verdicts(st)
         for v in vs["rows"]:
             if v["pending"]:
-                L.append(f"| {v['seed']} | 待資料 | | | | | | | | | | | |")
+                L.append(f"| {v['seed']} | 待資料 | | | | | | | | | | | | |")
                 continue
             s, c = v["S"], v["C"]
             b = st.get("batches", {}).get("1" if v["seed"] in (101, 202) else "2", {})
             yes = lambda x: "過" if x else "不過"
-            L.append(f"| {v['seed']}（S_s{v['seed']}／C_s{v['seed']}-skipctl） | {c['mean']:,.0f}／{c['r1024']:.0%} | {s['mean']:,.0f}／{s['r1024']:.0%} | ×{fmt(v['ratio'], '.2f')} | {v['dpp']:+.1f}pp | {yes(v['score_ok'])} | {yes(v['cost_ok'])}（{fmt(v['cost_ratio'], '.1%')}） | {yes(v['ok'])} | {yes(v['abs_C'])}／{yes(v['abs_S'])} | {fmt(c['updates'], ',')}／{fmt(s['updates'], ',')} | {fmt(c['env_steps'], ',')}／{fmt(s['env_steps'], ',')} | {fmt(c['ups'])}／{fmt(s['ups'])} | {fmt(b.get('mean_busy_cores'))}／{fmt(b.get('mean_busy_cores'))} |")
+            L.append(f"| {v['seed']}（S_s{v['seed']}／C_s{v['seed']}-skipctl） | {c['mean']:,.0f}／{c['r1024']:.0%} | {s['mean']:,.0f}／{s['r1024']:.0%} | ×{fmt(v['ratio'], '.2f')} | {v['dpp']:+.1f}pp | {yes(v['ok'])} | ×{fmt(v['diag']['updates'], '.3f')} | ×{fmt(v['diag']['env_steps'], '.3f')} | ×{fmt(v['diag']['ups'], '.3f')} | {yes(v['abs_C'])}／{yes(v['abs_S'])} | {fmt(c['updates'], ',')}／{fmt(s['updates'], ',')} | {fmt(c['env_steps'], ',')}／{fmt(s['env_steps'], ',')} | {fmt(c['ups'])}／{fmt(s['ups'])} | {fmt(b.get('mean_busy_cores'))}／{fmt(b.get('mean_busy_cores'))} |")
         if not vs["pending"]:
             avg = {arm: {k: sum(v[arm][k] for v in vs["rows"]) / 3 for k in ("mean", "r1024")} for arm in ("C", "S")}
             L += ["", f"三種子平均（探索性，不作判定）：C {avg['C']['mean']:,.0f}／{avg['C']['r1024']:.1%}；S {avg['S']['mean']:,.0f}／{avg['S']['r1024']:.1%}。",

@@ -1,8 +1,8 @@
 {
   "note": "S_PREREG 修訂 1：同時段 C 對照；t180 正式判定；快照僅供探索。",
-  "prereg": "results/round2_skip/S_PREREG.md 修訂 1（2026-10-18 13:36 台北）",
+  "prereg": "results/round2_skip/S_PREREG.md 修訂 1（2026-10-18 13:36 台北）＋修訂 2（2026-10-18 14:08 台北，成本門改為診斷）",
   "code_dir": "/workspace/rl2048-review/wt-skip-run",
-  "expected_commit": "28a8f8bc54639ea0982742015909b9d36854fd09",
+  "expected_commit": "6c395113c6685959b0d9f438a7a9f5210fd6597c",
   "python": "/workspace/rl2048-review/.venv/bin/python",
   "runs_dir": "/workspace/rl2048-review/skip-run/runs",
   "repo": "/workspace/rl2048-review/wt-skip",
@@ -130,7 +130,6 @@
   "rules": {
     "ratio": 1.2,
     "pp_1024": 10,
-    "cost_guard": 0.85,
     "abs_mean": 15000,
     "abs_r1024": 0.8,
     "stall_min": 10

@@ -59,7 +59,7 @@ class GitBox:
     def reset(self, gitdir):
         self.calls = []
         self.popen_calls = []
-        self.head = "28a8f8bc54639ea0982742015909b9d36854fd09"
+        self.head = "6c395113c6685959b0d9f438a7a9f5210fd6597c"
         self.branch = BRANCH
         self.gitdir = gitdir
         self.diff_code = 1
@@ -495,36 +495,74 @@ def test_判定門檻剛好達到才採用(tmp_path, monkeypatch):
         assert row["pending"] is False
         assert row["ratio"] == pytest.approx(1.2)
         assert row["dpp"] == pytest.approx(10)
-        assert row["cost_ratio"] == pytest.approx(0.85)
+        assert row["diag"]["updates"] == pytest.approx(0.85)
+        assert row["diag"]["env_steps"] == pytest.approx(1.0)
+        assert row["diag"]["ups"] == pytest.approx(0.85)
         assert row["score_ok"] is True
-        assert row["cost_ok"] is True
         assert row["ok"] is True
+        assert "cost_ok" not in row
 
 
-def test_判定低於ratio或pp或成本門不採用(tmp_path, monkeypatch):
+def test_修訂2_成本比值只診斷不影響判定(tmp_path, monkeypatch):
+    sched = make_scheduler(tmp_path, monkeypatch)
+    assert "cost_guard" not in sched.cfg["rules"]
+    # updates 只有 C 的 30%、env_steps 一半：分數門過就採用。
+    for seed in (101, 202, 303):
+        plant(sched, f"S_s{seed}", mean=13000, r1024=0.7, updates=300, extra_train={"env_steps": 2500})
+        plant(sched, f"C_s{seed}-skipctl", mean=10000, r1024=0.5, updates=1000)
+    result = sched.verdicts({})
+    assert result["adopt"] is True and result["n_pass"] == 3
+    for row in result["rows"]:
+        assert row["diag"]["updates"] == pytest.approx(0.3)
+        assert row["diag"]["env_steps"] == pytest.approx(0.5)
+        assert row["diag"]["ups"] == pytest.approx(0.3)
+    text = sched.finish_text({"batches": {}})
+    assert "成本門" not in text and "updates ×0.30" in text and "env_steps ×0.50" in text and "updates/s ×0.30" in text
+    assert "採用 S（3/3）" in text
+    # 比值很高也救不了分數門不過。
+    for seed in (101, 202, 303):
+        plant(sched, f"S_s{seed}", mean=11999, r1024=0.7, updates=5000)
+    result = sched.verdicts({})
+    assert result["adopt"] is False and result["n_pass"] == 0
+    assert all(row["diag"]["updates"] == pytest.approx(5.0) for row in result["rows"])
+
+
+def test_修訂2_狀態表輸出三個診斷比值(tmp_path, monkeypatch):
+    sched = make_scheduler(tmp_path, monkeypatch)
+    for seed in (101, 202, 303):
+        plant(sched, f"S_s{seed}", mean=13000, r1024=0.7, updates=600, extra_train={"env_steps": 4000})
+        plant(sched, f"C_s{seed}-skipctl", mean=10000, r1024=0.5, updates=1000)
+    sched.write_fragment({"started": "x", "batches": {}}, [])
+    md = sched.status_path.read_text()
+    assert "成本保護門" not in md and "0.85" not in md
+    assert "修訂 2" in md
+    lines = [l for l in md.splitlines() if l.startswith("| seed") or l.startswith("| 101") or l.startswith("|---|---|---|---|---|---|---|---|---|")]
+    header = next(l for l in md.splitlines() if l.startswith("| seed"))
+    row = next(l for l in md.splitlines() if l.startswith("| 101"))
+    assert header.count("|") == row.count("|")
+    assert "診斷 S/C updates |" in header and "診斷 S/C env_steps" in header and "診斷 S/C updates/s" in header
+    assert "×0.600 | ×0.800 | ×0.600" in row
+
+
+def test_判定低於ratio或pp不採用(tmp_path, monkeypatch):
     sched = make_scheduler(tmp_path, monkeypatch)
     plant_seed(sched, 101, s_mean=11999, c_mean=10000, s_r=0.6, c_r=0.5, s_up=850, c_up=1000)
     plant_seed(sched, 202, s_mean=12000, c_mean=10000, s_r=0.59, c_r=0.5, s_up=850, c_up=1000)
-    plant_seed(sched, 303, s_mean=12000, c_mean=10000, s_r=0.6, c_r=0.5, s_up=849, c_up=1000)
+    plant_seed(sched, 303, s_mean=12000, c_mean=10000, s_r=0.6, c_r=0.5, s_up=500, c_up=1000)
     result = sched.verdicts({})
     ratio_row = row_by_seed(result, 101)
     pp_row = row_by_seed(result, 202)
-    cost_row = row_by_seed(result, 303)
+    low_up_row = row_by_seed(result, 303)
     assert ratio_row["ratio"] < 1.2
-    assert ratio_row["score_ok"] is False
-    assert ratio_row["cost_ok"] is True
-    assert ratio_row["ok"] is False
+    assert ratio_row["score_ok"] is False and ratio_row["ok"] is False
     assert pp_row["dpp"] < 10
     assert pp_row["ratio"] == pytest.approx(1.2)
-    assert pp_row["score_ok"] is False
-    assert pp_row["cost_ok"] is True
-    assert pp_row["ok"] is False
-    assert cost_row["score_ok"] is True
-    assert cost_row["cost_ratio"] < 0.85
-    assert cost_row["cost_ok"] is False
-    assert cost_row["ok"] is False
+    assert pp_row["score_ok"] is False and pp_row["ok"] is False
+    # 修訂 2：updates 只有 0.5 倍仍然通過。
+    assert low_up_row["diag"]["updates"] == pytest.approx(0.5)
+    assert low_up_row["score_ok"] is True and low_up_row["ok"] is True
     assert result["pending"] is False
-    assert result["n_pass"] == 0
+    assert result["n_pass"] == 1
     assert result["adopt"] is False
 
 
@@ -544,31 +582,30 @@ def test_判定缺資料或無法計算不算通過(tmp_path, monkeypatch):
 
     for seed in (101, 202, 303):
         plant_seed(sched, seed, s_mean=12000, c_mean=10000, s_r=0.6, c_r=0.5, s_up=850, c_up=1000)
-    # 有 eval／train，但 S 的 updates 缺欄位：不是 pending，成本門失敗。
+    # S 的 updates 缺欄位：診斷比值為 None，但不影響分數判定。
     plant(sched, "S_s101", mean=12000, r1024=0.6, updates=850, drop=("updates",))
-    # C 的 mean 為 0，比值無法計算。
+    # C 的 mean 為 0，比值無法計算 → 不通過。
     plant(sched, "S_s202", mean=12000, r1024=0.6, updates=850)
     plant(sched, "C_s202-skipctl", mean=0, r1024=0.5, updates=1000)
-    # C 的 updates 為 0，成本比無法計算。分數門仍可過，綜合判定不過。
+    # C 的 updates 為 0：診斷比值為 None，分數門照常判定。
     plant(sched, "S_s303", mean=12000, r1024=0.6, updates=850)
     plant(sched, "C_s303-skipctl", mean=10000, r1024=0.5, updates=0)
     partial = sched.verdicts({})
     assert partial["pending"] is False
-    assert partial["adopt"] is False
-    assert partial["n_pass"] == 0
     no_updates = row_by_seed(partial, 101)
     zero_mean = row_by_seed(partial, 202)
-    zero_cost = row_by_seed(partial, 303)
+    zero_up = row_by_seed(partial, 303)
     assert no_updates["pending"] is False
-    assert no_updates["cost_ratio"] is None
-    assert no_updates["cost_ok"] is False
-    assert no_updates["score_ok"] is True
+    assert no_updates["diag"]["updates"] is None and no_updates["diag"]["ups"] is None
+    assert no_updates["ok"] is True
     assert zero_mean["ratio"] is None
-    assert zero_mean["score_ok"] is False
-    assert zero_mean["pending"] is False
-    assert zero_cost["cost_ratio"] is None
-    assert zero_cost["cost_ok"] is False
-    assert zero_cost["score_ok"] is True
+    assert zero_mean["score_ok"] is False and zero_mean["ok"] is False
+    assert zero_up["diag"]["updates"] is None and zero_up["diag"]["ups"] is None
+    assert zero_up["diag"]["env_steps"] == pytest.approx(1.0)
+    assert zero_up["ok"] is True
+    assert partial["n_pass"] == 2
+    assert partial["adopt"] is False
+    sched.write_fragment({"started": "x", "batches": {}}, [])  # None 比值也能輸出
 
     plant(sched, "S_s101", mean=12000, r1024=0.6, updates=850, drop=("r2048",))
     broken = sched.verdicts({})

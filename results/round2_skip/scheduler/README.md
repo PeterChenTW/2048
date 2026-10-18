@@ -8,7 +8,7 @@
 - `s_run.py`：`tick` 執行一次檢查，`loop` 每 30 秒檢查；同一 state 使用 flock 防止重複 tick／loop。
 - `s_keepalive.sh`：loop 意外退出後等 10 秒重開，最多重開 30 次；完成後離開。
 - `s_state.json`：正式排程狀態；`s_state.dry_run.json` 是預覽輸出，不增加正式空閒計數。
-- `S_STATUS.md`：本地可讀狀態，包含等待條件、批次與 job 狀態、判定、成本門、負載、其他指標及探索性快照。
+- `S_STATUS.md`：本地可讀狀態，包含等待條件、批次與 job 狀態、判定、三個 S/C 診斷比值、負載、其他指標及探索性快照。
 - `s_run.log`、`s_loop.out`：事件與保活輸出；`runs/<job>/`：checkpoint、訓練輸出、JSON、快照與 eval。
 - `test_s_run.py`：完全隔離的 pytest 測試；`qa/` 是獨立驗證紀錄，不參與排程。
 
@@ -29,7 +29,7 @@ nohup bash /workspace/rl2048-review/skip-run/s_keepalive.sh > /workspace/rl2048-
 
 **這個未執行的啟動範例應從 nice 0 的一般 shell 執行。** `nice -n 10` 是相對增量；若先把 keepalive 設為 nice 19，後代無法恢復到登記要求的 nice 10。今天所有實際檢查指令都以 nice 19 執行，且禁止 launch。
 
-批次 1 同一 tick 啟動 S_s101、S_s202、C_s101-skipctl、C_s202-skipctl，共用 CPU 0–7，每 job 2 threads、nice 10。批次 2 在前四個 job 都有 `eval_end` 與有效 train/eval JSON、且機器沒有任何訓練或 eval 後，啟動 S_s303、C_s303-skipctl，共用 CPU 0–3。兩批皆核對程式 commit `28a8f8bc54639ea0982742015909b9d36854fd09`。
+批次 1 同一 tick 啟動 S_s101、S_s202、C_s101-skipctl、C_s202-skipctl，共用 CPU 0–7，每 job 2 threads、nice 10。批次 2 在前四個 job 都有 `eval_end` 與有效 train/eval JSON、且機器沒有任何訓練或 eval 後，啟動 S_s303、C_s303-skipctl，共用 CPU 0–3。兩批皆核對程式 commit `6c395113c6685959b0d9f438a7a9f5210fd6597c`。
 
 所有訓練與 eval 的 cwd 都是 `/workspace/rl2048-review/wt-skip-run`，直譯器固定 `/workspace/rl2048-review/.venv/bin/python`。每個 eval 使用 `timeout` 配額 30 分鐘；失敗就沒有 `eval_end`，不自動重跑正式 job。快照 eval 最多嘗試三次，使用該批 CPU 與 nice 10。
 
@@ -57,7 +57,7 @@ nice -n 19 bash -c 'for f in /workspace/rl2048-review/skip-run/s_keepalive.pid /
 
 ## 判定、快照與負載
 
-正式判定只讀 t180 的 final checkpoint eval。每個 seed 的 S 對同時段 C 必須同時達到 mean 比值 ≥1.20、≥1024 增幅 ≥10pp、updates 比值 ≥0.85；三 seed 全過才採用。成本門缺資料或 C updates 為零都不視為通過。絕對目標另列：S 每 seed mean >15,000 且 ≥1024 ≥80%。三 seed 平均只供探索。
+正式判定只讀 t180 的 final checkpoint eval。每個 seed 的 S 對同時段 C 必須同時達到 mean 比值 ≥1.20、≥1024 增幅 ≥10pp（S_PREREG 修訂 2：成本門已取消）；三 seed 全過才採用，缺資料不視為通過。S/C 的 updates、env_steps、updates/s 比值為必報診斷，不影響判定。絕對目標另列：S 每 seed mean >15,000 且 ≥1024 ≥80%。三 seed 平均只供探索。
 
 快照沿用參考的 monotonic 時間累積：相鄰 tick 間隔在 0–60 秒才計入 active；重新開機重設基準。在 t90／120／150 複製 checkpoint 並先驗證可載入，再使用相同評估協定。state 記錄實際取得時刻；錯過的快照不拿 final checkpoint 冒充。已取得快照的 eval 收尾後，才宣告全部完成及結束監控。
 
