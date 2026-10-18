@@ -33,3 +33,11 @@ class DQNConfig:
     reward_scale: float = 256.0
     restart_frac: float = 0.0
     restart_pool_size: int = 5000
+    # Round 3 (default off). These keys are omitted from saved checkpoint configs
+    # when at their defaults so flag-off checkpoints stay byte-compatible.
+    sym_aug: str = 'none'  # none, random (onehot_afterstate only)
+    value_rescale: str = 'none'  # none, h (onehot_afterstate only)
+    value_rescale_eps: float = 1e-3
+
+
+ROUND3_DEFAULTS = {'sym_aug': 'none', 'value_rescale': 'none', 'value_rescale_eps': 1e-3}

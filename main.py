@@ -81,7 +81,16 @@ def parser():
     train.add_argument('--active-max-gap-s', type=positive_float, default=60.0,
                        help='maximum gap in seconds counted as active time (default: 60.0)')
     train.add_argument('--gamma', type=nonnegative_float)
-    train.add_argument('--reward-mode', choices=('log', 'linear'), default=None)
+    train.add_argument('--reward-mode', choices=('log', 'linear', 'raw'), default=None,
+                       help="merge reward: log (default), linear (merge/scale) or raw "
+                            "(unshaped merge score; use with --value-rescale h)")
+    train.add_argument('--sym-aug', choices=('none', 'random'), default='none',
+                       help='afterstate replay: apply one random D4 symmetry per sampled '
+                            'transition (default: none)')
+    train.add_argument('--value-rescale', choices=('none', 'h'), default='none',
+                       help='learn h(V), h(x)=sign(x)(sqrt(|x|+1)-1)+eps*x (default: none)')
+    train.add_argument('--value-rescale-eps', type=positive_float, default=None,
+                       help='eps of h (default: 1e-3)')
     train.add_argument('--reward-scale', type=positive_float, default=None)
     train.add_argument('--eps-schedule', choices=('update_exp', 'linear_steps', 'episode_exp'))
     train.add_argument('--eps-start', type=nonnegative_float)
@@ -142,6 +151,12 @@ def train(args):
         config_args['reward_mode'] = args.reward_mode
     if args.reward_scale is not None:
         config_args['reward_scale'] = args.reward_scale
+    if args.sym_aug != 'none':
+        config_args['sym_aug'] = args.sym_aug
+    if args.value_rescale != 'none':
+        config_args['value_rescale'] = args.value_rescale
+    if args.value_rescale_eps is not None:
+        config_args['value_rescale_eps'] = args.value_rescale_eps
     for argument, field in [('eps_schedule', 'epsilon_schedule'),
                             ('eps_start', 'epsilon_start'), ('eps_min', 'epsilon_min'),
                             ('eps_decay', 'epsilon_decay'),
@@ -378,6 +393,10 @@ def train(args):
                    q_stats_ranges=q_ranges, nan_count=nan_count, stopped_reason=stopped_reason,
                    interrupted=interrupted,
                    checkpoint=str(output), loaded_checkpoint=None if args.from_scratch else args.checkpoint)
+    from config import ROUND3_DEFAULTS
+    if any(getattr(config, key) != default for key, default in ROUND3_DEFAULTS.items()):
+        # Only when a round-3 flag is on, so flag-off train.json keeps its old keys.
+        summary.update({key: getattr(config, key) for key in ROUND3_DEFAULTS})
     if config.epsilon_schedule == 'episode_exp':
         summary.update(epsilon_decay=config.epsilon_decay,
                        epsilon_decay_start_episode=config.epsilon_decay_start_episode)

@@ -625,7 +625,8 @@ def test_check8_defaults_untouched_and_legacy_dueling_checkpoints_load(tmp_path)
     assert {k: actual[k] for k in expected_defaults} == expected_defaults
     off_defaults = dict(per_max_priority='scan', track_replay_age=False, reward_mode='log',
                         reward_scale=256.0, restart_frac=0.0, restart_pool_size=5000,
-                        epsilon_decay_start_episode=0, value_skip='none')
+                        epsilon_decay_start_episode=0, value_skip='none',
+                        sym_aug='none', value_rescale='none', value_rescale_eps=1e-3)
     assert {k: v for k, v in actual.items() if k not in expected_defaults} == off_defaults
 
     # Default DDQNAgent builds legacy DQN and round-trips raw state_dict checkpoints

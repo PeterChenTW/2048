@@ -135,7 +135,21 @@ class DDQNAgent:
             raise ValueError('n_step must be a positive integer')
         if self.config.per_max_priority not in ('scan', 'tree'):
             raise ValueError(f'unknown per_max_priority: {self.config.per_max_priority}')
-        if self.config.reward_mode not in ('log', 'linear'):
+        if self.config.sym_aug not in ('none', 'random'):
+            raise ValueError(f'unknown sym_aug: {self.config.sym_aug!r}')
+        if self.config.value_rescale not in ('none', 'h'):
+            raise ValueError(f'unknown value_rescale: {self.config.value_rescale!r}')
+        if (isinstance(self.config.value_rescale_eps, bool) or
+                not isinstance(self.config.value_rescale_eps, (int, float)) or
+                not (self.config.value_rescale_eps > 0) or
+                not np.isfinite(self.config.value_rescale_eps)):
+            raise ValueError('value_rescale_eps must be a finite positive number')
+        if ((self.config.sym_aug != 'none' or self.config.value_rescale != 'none') and
+                self.config.arch != 'onehot_afterstate'):
+            raise ValueError('sym_aug/value_rescale require arch=onehot_afterstate')
+        if not (0 <= self.config.gamma <= 1) or not np.isfinite(self.config.gamma):
+            raise ValueError('gamma must be in [0, 1]')
+        if self.config.reward_mode not in ('log', 'linear', 'raw'):
             raise ValueError(f'unknown reward mode: {self.config.reward_mode}')
         if (isinstance(self.config.reward_scale, bool) or
                 not isinstance(self.config.reward_scale, (int, float)) or
@@ -309,8 +323,18 @@ class DDQNAgent:
         state = self.model.state_dict()
         if self.config.arch != 'legacy':
             state = dict(format='dqn2048-v2', architecture=self.model.architecture,
-                         state_dict=state, config=asdict(self.config))
+                         state_dict=state, config=_saved_config(self.config))
         torch.save(state, name)
+
+
+def _saved_config(config):
+    """asdict(config) without round-3 keys that are at their defaults."""
+    from config import ROUND3_DEFAULTS
+    saved = asdict(config)
+    for key, default in ROUND3_DEFAULTS.items():
+        if saved.get(key) == default:
+            del saved[key]
+    return saved
 
 
 def _read_checkpoint(path):

@@ -15,11 +15,19 @@ class AfterstateAgent(DDQNAgent):
         if config.n_step != 1:
             raise ValueError('onehot_afterstate requires n_step=1')
         super().__init__(state_size, action_size, config)
+        # Separate stream so flag-off runs consume self.rng exactly as before.
+        self.sym_rng = (np.random.default_rng(None if self.config.seed is None else
+                                              [self.config.seed, 0x5133])
+                        if self.config.sym_aug == 'random' else None)
 
     def _reward_options(self):
-        return dict(gamma=self.config.gamma,
-                    reward_mode=self.config.reward_mode,
-                    reward_scale=self.config.reward_scale)
+        options = dict(gamma=self.config.gamma,
+                       reward_mode=self.config.reward_mode,
+                       reward_scale=self.config.reward_scale)
+        if self.config.value_rescale != 'none':
+            options.update(value_rescale=self.config.value_rescale,
+                           value_rescale_eps=self.config.value_rescale_eps)
+        return options
 
     def act(self, state, invalid_moves):
         return select_action(self.model, self._state_tensor(state).reshape(16),
@@ -60,7 +68,14 @@ class AfterstateAgent(DDQNAgent):
             chosen_after = torch.as_tensor(result.after[rows, choices], dtype=torch.float32)
             values = self.target_model(chosen_after).reshape(-1)
             rewards = torch.as_tensor(result.rewards[rows, choices], dtype=torch.float32)
-            targets[active[rows]] = rewards + self.config.gamma * values
+            if self.config.value_rescale == 'h':
+                from value_rescale import h, h_inv
+                eps = self.config.value_rescale_eps
+                # Bootstrap in the original scale, regress h(target). Terminal
+                # rows keep target 0 = h(0): no bootstrap past game over (gamma=1 safe).
+                targets[active[rows]] = h(rewards + self.config.gamma * h_inv(values, eps), eps)
+            else:
+                targets[active[rows]] = rewards + self.config.gamma * values
         return targets
 
     def replay(self, batch_size=None):
@@ -81,6 +96,14 @@ class AfterstateAgent(DDQNAgent):
         states = torch.cat(states)
         next_states = torch.cat(next_states)
         dones = torch.tensor(dones, dtype=torch.bool)
+        if self.sym_rng is not None:
+            # One uniformly random D4 element per sampled transition, applied to both
+            # the afterstate and its successor (V is D4-invariant; no action index is
+            # stored in afterstate transitions, and the target recomputes legality).
+            from symmetry import apply_batch
+            sym_ids = self.sym_rng.integers(0, 8, size=len(states))
+            states = apply_batch(states, sym_ids)
+            next_states = apply_batch(next_states, sym_ids)
         q = self.model(states).reshape(-1)
         targets = self._targets(next_states, dones)
         td = targets - q

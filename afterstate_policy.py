@@ -113,6 +113,8 @@ def afterstate_scores(
     gamma: float = 0.99,
     reward_mode: str = "log",
     reward_scale: float = 256.0,
+    value_rescale: str = "none",
+    value_rescale_eps: float = 1e-3,
 ) -> AfterstateScores:
     """Compute afterstates, merge rewards, legality, and action scores r + gamma * V(after).
 
@@ -146,6 +148,12 @@ def afterstate_scores(
         with torch.no_grad():
             v_legal = model(legal_after)
         v_legal_t = torch.as_tensor(v_legal, dtype=torch.float32).detach().cpu().reshape(-1)
+        if value_rescale == "h":
+            # The network predicts h(V); act on r + gamma * h^{-1}(output).
+            from value_rescale import h_inv
+            v_legal_t = h_inv(v_legal_t, value_rescale_eps)
+        elif value_rescale != "none":
+            raise ValueError(f"unknown value_rescale: {value_rescale!r}")
         if v_legal_t.numel() != legal_after.shape[0]:
             raise ValueError(
                 f"model returned {v_legal_t.numel()} values for {legal_after.shape[0]} legal afterstates"
@@ -163,6 +171,7 @@ def greedy_actions(
     gamma: float = 0.99,
     reward_mode: str = "log",
     reward_scale: float = 256.0,
+    **rescale,
 ) -> np.ndarray:
     """Return greedy action indices (N,) int64 maximizing r(s,a) + gamma*V(after(s,a)) over legal a.
 
@@ -175,6 +184,7 @@ def greedy_actions(
         gamma=gamma,
         reward_mode=reward_mode,
         reward_scale=reward_scale,
+        **rescale,
     )
     if res.legal.shape[0] == 0:
         return np.empty((0,), dtype=np.int64)
@@ -193,6 +203,7 @@ def select_action(
     gamma: float = 0.99,
     reward_mode: str = "log",
     reward_scale: float = 256.0,
+    **rescale,
 ) -> int:
     """Epsilon-greedy action selection over legal moves using afterstate values.
 
@@ -228,5 +239,6 @@ def select_action(
             gamma=gamma,
             reward_mode=reward_mode,
             reward_scale=reward_scale,
+            **rescale,
         )[0]
     )
