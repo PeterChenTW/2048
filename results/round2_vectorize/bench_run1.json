@@ -1,0 +1,72 @@
+{
+  "timestamp": "2026-10-18T03:47:54.752911+00:00",
+  "config": {
+    "expand": [
+      "reference",
+      "vectorized"
+    ],
+    "seconds": 20.0,
+    "seed": 1,
+    "threads": 1
+  },
+  "environment": {
+    "torch_threads": 1,
+    "loadavg_start": [
+      8.64208984375,
+      8.00830078125,
+      5.99267578125
+    ],
+    "loadavg_end": [
+      9.25830078125,
+      8.47314453125,
+      6.41259765625
+    ]
+  },
+  "results": {
+    "reference": {
+      "measure_a": {
+        "steps": 18512,
+        "elapsed_sec": 20.000432597000326,
+        "steps_per_sec": 925.5799798438578
+      },
+      "measure_b": {
+        "updates": 627,
+        "elapsed_sec": 20.021996016999765,
+        "updates_per_sec": 31.31555912146036
+      },
+      "measure_c": {
+        "env_steps": 1287,
+        "updates": 579,
+        "elapsed_sec": 20.029717480996624,
+        "env_steps_per_sec": 64.25452586742938,
+        "updates_per_sec": 28.9070477678645
+      }
+    },
+    "vectorized": {
+      "measure_a": {
+        "steps": 19210,
+        "elapsed_sec": 20.000189772996237,
+        "steps_per_sec": 960.490886238333
+      },
+      "measure_b": {
+        "updates": 640,
+        "elapsed_sec": 20.007486175003578,
+        "updates_per_sec": 31.988026601742014
+      },
+      "measure_c": {
+        "env_steps": 1278,
+        "updates": 575,
+        "elapsed_sec": 20.021870153002965,
+        "env_steps_per_sec": 63.83020118669185,
+        "updates_per_sec": 28.71859599557732
+      }
+    }
+  },
+  "errors": {},
+  "ratios": {
+    "act_steps_ratio": 1.0377178711237516,
+    "replay_updates_ratio": 1.0214739094286462,
+    "mixed_env_steps_ratio": 0.9933961899958145,
+    "mixed_updates_ratio": 0.9934807672578492
+  }
+}

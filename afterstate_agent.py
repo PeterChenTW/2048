@@ -15,15 +15,24 @@ class AfterstateAgent(DDQNAgent):
         if config.n_step != 1:
             raise ValueError('onehot_afterstate requires n_step=1')
         super().__init__(state_size, action_size, config)
+        self.last_after_state = None
 
     def _reward_options(self):
         return dict(gamma=self.config.gamma,
                     reward_mode=self.config.reward_mode,
-                    reward_scale=self.config.reward_scale)
+                    reward_scale=self.config.reward_scale,
+                    expand=self.config.afterstate_expand)
 
     def act(self, state, invalid_moves):
-        return select_action(self.model, self._state_tensor(state).reshape(16),
-                             invalid_moves, self.epsilon, self.rng, **self._reward_options())
+        self.last_after_state = None
+        result = select_action(self.model, self._state_tensor(state).reshape(16),
+                               invalid_moves, self.epsilon, self.rng,
+                               return_after=self.config.afterstate_expand == "vectorized",
+                               **self._reward_options())
+        if self.config.afterstate_expand == "vectorized":
+            action, self.last_after_state = result
+            return action
+        return result
 
     def greedy_action(self, grid, invalid_moves):
         # A greedy evaluation must not consume the training exploration RNG.

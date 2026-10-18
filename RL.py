@@ -294,6 +294,9 @@ class DDQNAgent:
         state = payload['state_dict'] if 'format' in payload else payload
         self.model.load_state_dict(state, strict=True)
         self.update_target_model()
+        if arch == 'onehot_afterstate':
+            self.config.afterstate_expand = payload.get('config', {}).get('afterstate_expand', 'reference')
+            self.last_after_state = None
 
     def save(self, name):
         state = self.model.state_dict()

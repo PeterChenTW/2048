@@ -10,7 +10,7 @@ from typing import Iterable, NamedTuple, Sequence, Union
 import numpy as np
 import torch
 
-from afterstate import afterstates, batch_afterstates
+from afterstate import EXPAND_MODES, afterstates, batch_afterstates
 from rewards import merge_rewards
 
 
@@ -113,6 +113,7 @@ def afterstate_scores(
     gamma: float = 0.99,
     reward_mode: str = "log",
     reward_scale: float = 256.0,
+    expand: str = "reference",
 ) -> AfterstateScores:
     """Compute afterstates, merge rewards, legality, and action scores r + gamma * V(after).
 
@@ -134,8 +135,14 @@ def afterstate_scores(
             scores: torch.Tensor float32 of shape (N, 4) (-inf for illegal)
     """
     grids_2d = _normalize_grids(grids)
-    n = grids_2d.shape[0]
-    after, merge, legal = batch_afterstates(grids_2d)
+    expanded = batch_afterstates(grids_2d, expand=expand)
+    return _score_expanded(model, expanded, gamma, reward_mode, reward_scale)
+
+
+def _score_expanded(model, expanded, gamma, reward_mode, reward_scale):
+    """Score an existing expansion without moving or expanding the board again."""
+    after, merge, legal = expanded
+    n = after.shape[0]
 
     rewards = merge_reward(merge, mode=reward_mode, scale=reward_scale)
     rewards = np.where(legal, rewards, np.float32(0.0)).astype(np.float32, copy=False)
@@ -163,6 +170,7 @@ def greedy_actions(
     gamma: float = 0.99,
     reward_mode: str = "log",
     reward_scale: float = 256.0,
+    expand: str = "reference",
 ) -> np.ndarray:
     """Return greedy action indices (N,) int64 maximizing r(s,a) + gamma*V(after(s,a)) over legal a.
 
@@ -175,6 +183,7 @@ def greedy_actions(
         gamma=gamma,
         reward_mode=reward_mode,
         reward_scale=reward_scale,
+        expand=expand,
     )
     if res.legal.shape[0] == 0:
         return np.empty((0,), dtype=np.int64)
@@ -193,16 +202,28 @@ def select_action(
     gamma: float = 0.99,
     reward_mode: str = "log",
     reward_scale: float = 256.0,
-) -> int:
+    expand: str = "reference",
+    return_after: bool = False,
+) -> Union[int, tuple[int, np.ndarray]]:
     """Epsilon-greedy action selection over legal moves using afterstate values.
 
     Consumes ``rng`` identically to ``DDQNAgent.act``:
     one ``rng.random()`` call, followed by ``rng.choice(valid_actions)`` on exploration.
+    With ``return_after=True``, also return an independent (16,) int64 afterstate.
+    Vectorized selection shares one expansion across legality, scoring and return.
     Raises ValueError/AssertionError if ``invalid_moves`` disagrees with afterstate legality
     or if no legal actions exist.
     """
     flat_grid = _normalize_single_grid(grid)
-    _, _, legal = afterstates(flat_grid)
+    if expand not in EXPAND_MODES:
+        raise ValueError(f"Unknown expand mode: {expand!r}")
+    if expand == "vectorized":
+        expanded = batch_afterstates(flat_grid.reshape(1, 16), expand=expand)
+        after, _, legal_batch = expanded
+        legal = legal_batch[0]
+        after = after[0]
+    else:
+        after, _, legal = afterstates(flat_grid)
 
     invalid_list = [int(a) for a in invalid_moves]
     if any(a < 0 or a >= 4 for a in invalid_list):
@@ -219,14 +240,18 @@ def select_action(
         raise ValueError("no valid actions")
 
     if rng.random() < epsilon:
-        return int(rng.choice(valid_actions))
-
-    return int(
-        greedy_actions(
-            model,
-            flat_grid,
-            gamma=gamma,
-            reward_mode=reward_mode,
-            reward_scale=reward_scale,
-        )[0]
-    )
+        action = int(rng.choice(valid_actions))
+    elif expand == "vectorized":
+        result = _score_expanded(model, expanded, gamma, reward_mode, reward_scale)
+        action = int(result.scores[0].argmax().item())
+    else:
+        action = int(
+            greedy_actions(
+                model,
+                flat_grid,
+                gamma=gamma,
+                reward_mode=reward_mode,
+                reward_scale=reward_scale,
+            )[0]
+        )
+    return (action, after[action].copy()) if return_after else action

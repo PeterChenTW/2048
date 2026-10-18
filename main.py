@@ -67,6 +67,8 @@ def parser():
     train.add_argument('--from-scratch', action='store_true')
     train.add_argument('--arch', choices=('legacy', 'onehot_dueling', 'onehot_conv2x2',
                                         'onehot_afterstate'), default='legacy')
+    train.add_argument('--afterstate-expand', choices=('reference', 'vectorized'),
+                       default='reference', help='afterstate expansion backend (onehot_afterstate only)')
     train.add_argument('--n-step', type=positive_int, default=1)
     train.add_argument('--restart-frac', type=fraction, default=0.0,
                        help='fraction of episodes started from own reached boards (default: off)')
@@ -124,8 +126,11 @@ def train(args):
     from nstep import NStepAccumulator
     from rewards import shape_reward
 
+    if args.arch != 'onehot_afterstate' and args.afterstate_expand != 'reference':
+        raise ValueError('--afterstate-expand vectorized requires --arch onehot_afterstate')
     torch.set_num_threads(args.threads)
     config_args = {'seed': args.seed, 'arch': args.arch, 'n_step': args.n_step,
+                   'afterstate_expand': args.afterstate_expand,
                    'restart_frac': args.restart_frac, 'restart_pool_size': args.restart_pool_size}
     if args.gamma is not None:
         config_args['gamma'] = args.gamma
@@ -166,6 +171,8 @@ def train(args):
                 raise ValueError(f'--arch {config.arch} requires --from-scratch or '
                                  '--checkpoint pointing to a v2 checkpoint of the same arch') from exc
             raise
+        # Training options come from the CLI, including the expansion backend.
+        config.afterstate_expand = args.afterstate_expand
         print(f'Loaded checkpoint: {args.checkpoint}', flush=True)
     else:
         print('Starting from scratch', flush=True)
@@ -257,7 +264,9 @@ def train(args):
                         else:
                             fresh_env_steps += 1
                     if config.arch == 'onehot_afterstate':
-                        after_state = afterstates(board.grid)[0][action]
+                        after_state = (agent.last_after_state
+                                       if config.afterstate_expand == 'vectorized'
+                                       else afterstates(board.grid)[0][action])
                     next_grid, reward, done = board.move(board.all_moves[action])
                     if config.reward_mode != 'log':
                         spawned = (reward != -1)
@@ -356,6 +365,7 @@ def train(args):
         q_ranges[key] = {'min': min(values) if values else None,
                          'max': max(values) if values else None}
     summary = dict(arch=config.arch, n_step=config.n_step,
+                   afterstate_expand=config.afterstate_expand,
                    memory_capacity=config.memory_capacity,
                    per_max_priority=config.per_max_priority,
                    track_replay_age=config.track_replay_age,
