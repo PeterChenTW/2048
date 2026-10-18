@@ -114,6 +114,8 @@
 - **必要驗證設計：**toy terminal target、reward 不重複、Double action selection、mask/no-op、pure_move RNG 不變、save/load/evaluator 一致；本研究階段不執行。
 - **成本：**12 CPU-h training，總配額≤20 CPU-h／≤2.5h；工程8–16h。
 - **風險：**target／reward indexing 錯誤；多 afterstate forward 降吞吐。未過門檻即不支持此預算下優勢，不能以文獻保證辯解。
+- **結果（10-18，90 分鐘終點，eval 100 局 seeds 1000–1099）：判定不過（2/3 seed 過；s101 的 ≥1024 只 +5pp）。** 依事前登記的規則，每個 seed 都要過；PM 決定維持規則，不在事後改門檻。各 seed 對同 seed 的 BASE：s101 6,303 對 5,249（×1.20，≥1024 13% 對 8%）；s202 6,580 對 3,095（×2.13，19% 對 0%）；s303 6,071 對 4,197（×1.45，14% 對 0%）。s303 是事後加跑的第 3 個種子。詳見 `results/exp1_afterstate/README.md`。
+- **探索性觀察（不改變判定）：**三個 seed 都贏同 seed 的 BASE（s101 ×1.20、s202 ×2.13、s303 ×1.45）；三種子平均 ×1.51，≥1024 多 13pp（15% 對 3%）；種子間的變異明顯比較小（AS 6,071–6,580，BASE 3,095–5,249）。因此選為下一輪的主軸（3 小時長跑進行中）。
 
 ### 2）容量 × n-step：先釐清已見退步的交互作用
 
