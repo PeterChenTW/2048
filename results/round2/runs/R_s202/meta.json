@@ -1,0 +1,22 @@
+{
+  "job": {
+    "name": "R_s202",
+    "seed": 202,
+    "arm": "R",
+    "compare": "E1-AS-LONG_s202"
+  },
+  "commit": "497bad4730adbbc6bd866d82a0ddf53688764579",
+  "prereg": "results/round2/R_PREREG.md（依 research/round2/REPORT.md @4cd674f §6 第4名、§6.1）",
+  "cpus": "0-7",
+  "nice": 10,
+  "threads": 2,
+  "minutes": 180,
+  "snapshots": [
+    90,
+    120,
+    150
+  ],
+  "started": "2026-10-18 17:48 Taipei",
+  "script": "/workspace/rl2048-review/.venv/bin/python main.py train --arch onehot_afterstate --from-scratch --n-step 1 --memory-capacity 6000 --per-max-priority tree --reward-mode log --gamma 0.99 --eps-schedule episode_exp --eps-decay 0.999 --eps-decay-start-episode 128 --restart-frac 0 --budget-clock active --eps-start 0.15 --eps-min 0.001 --replay-ratio 0.25 --seed 202 --threads 2 --minutes 180 --save-every 1 --save-as /workspace/rl2048-review/experiments/runs/round2/R_s202/ckpt --log /workspace/rl2048-review/experiments/runs/round2/R_s202/train.csv > /workspace/rl2048-review/experiments/runs/round2/R_s202/train.out 2>&1 && date +%s > /workspace/rl2048-review/experiments/runs/round2/R_s202/eval_start && OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 /workspace/rl2048-review/.venv/bin/python eval.py --checkpoint /workspace/rl2048-review/experiments/runs/round2/R_s202/ckpt --policy greedy --games 100 --seed-start 1000 --board fast --max-steps 5000 --json /workspace/rl2048-review/experiments/runs/round2/R_s202/eval.json > /workspace/rl2048-review/experiments/runs/round2/R_s202/eval.out 2>&1 && date +%s > /workspace/rl2048-review/experiments/runs/round2/R_s202/eval_end",
+  "launcher_pid": 511817
+}
