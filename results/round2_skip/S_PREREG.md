@@ -51,3 +51,40 @@ S（只改一處）：把 **ReLU 之後的 L1 輸出 h 和 v 攤平**（128×4×
 
 ## 本分支的 smoke（不作判定）
 短 smoke 訓練幾分鐘，`taskset -c 4-7 nice -n 19`，避開配對交接時段 14:38–14:52、16:10–16:25；只確認能正常學習、沒有非有限值，並量 S 對 C 的 updates/s 比值（同條件、同 threads）。結果只作參考，不能替代正式訓練的成本保護門。
+
+## 修訂 1（PM 10-18 13:36 台北時間決定；寫在任何 S 正式訓練開跑之前，當時沒有任何 S 正式 job 在跑或跑過）
+比照 results/round2/R_PREREG.md（exp/integrate）修訂 1、2 的格式和門檻。取代上面「訓練協定」裡 90 分鐘和 C 共用的部分；架構、旗標、正確性要求不變。
+
+**原因**：和 R 一樣，afterstate 在約第 300–1,100 局有一段中期凹陷（R_PREREG 修訂 2），用 90 分鐘終點判定對改變學習節奏的 arm 不公平；而且 S 每次 update 成本較高（smoke 顯示 updates/s 約 C 的 0.6–0.8 倍），同時段的 C 對照才比得準。
+
+### Arms 和完整旗標
+- **C**（同時段對照）：`main.py train --arch onehot_afterstate --from-scratch --n-step 1 --memory-capacity 6000 --replay-ratio 0.45 --per-max-priority tree --reward-mode log --gamma 0.99 --eps-schedule episode_exp --eps-start 0.15 --eps-min 0.001 --eps-decay 0.999 --eps-decay-start-episode 128 --restart-frac 0 --budget-clock active --minutes 180 --threads 2 --save-every 1 --seed S`
+- **S**：和 C 完全相同，只多 `--value-skip l1`。
+- seeds 101、202、303；每個 seed 都有一個同時段的 C（job 名稱 `C_s101-skipctl`、`C_s202-skipctl`、`C_s303-skipctl`），**主判定只用這三個同時段的 C**。第二輪原本的 C_s*、C_s*-rep 只當參考。
+- 程式碼：S 和 C 都從同一個固定 commit 的 exp/round2-skip 跑（排程器開跑時記錄 commit）。`--value-skip none`（預設）和 exp/integrate 的程式逐位相同，已用測試驗證。
+- eval：`eval.py --policy greedy --games 100 --seed-start 1000 --board fast --max-steps 5000`（seeds 1000–1099），配額 30 分鐘。
+- **`--save-every 1`** 只改 checkpoint 存檔頻率，訓練本身不變，用來存探索性快照。
+
+### 分批（8 核、每個 job 2 threads、nice 10）
+| 批次 | jobs | CPU | 開跑條件（自動） | 預計 |
+|---|---|---|---|---|
+| 1 | S_s101、S_s202、C_s101-skipctl、C_s202-skipctl | 0–7 | 第二輪 R 那批（R_s101／R_s202／C_s101-rep／C_s202-rep）完成（quad_state.json 有 done），**而且**機器上沒有任何 `main.py train` 或 `eval.py` 在跑（連續 2 次檢查，間隔 30 秒），**而且**時間在 20:30 之後 | 約 21:00 開跑，訓練 180 分鐘＋eval，約 00:30 完成 |
+| 2 | S_s303、C_s303-skipctl | 0–3 | 第 1 批四個 job 都完成 eval，而且機器上沒有其他訓練／eval | 約 00:30–04:00 |
+
+同一個 seed 的 S 和 C 一定在同一批、同時開跑，CPU 和 nice 相同。
+
+### 判定（事前登記；看到結果後不改）
+- **正式判定用 t180**（訓練結束的 checkpoint）的 eval 100 局。
+- **逐 seed 主判定**：`R_i = mean_S,i / mean_C,i ≥ 1.20`，而且 `Δ_i = 100×(p_S(≥1024) − p_C(≥1024)) ≥ +10pp`。三個 seed 都過才採用 S，任何一個 seed 不過就是不通過。
+- **成本保護門**：每個 seed 的 S 在 180 分鐘內的 updates ≥ 同時段 C × 0.85。沒過就判定「在這個 CPU 預算下不採用」，即使分數過了也一樣。
+- 三種子平均只作探索性參考；絕對目標另列（每個 seed 的 greedy mean > 15,000 且 ≥1024 ≥ 80%）。
+- **探索性快照**：每個 job 在 active t90、t120、t150 各存一個 snapshot，各 eval 100 局（同一套協定），**不參與判定**。
+- **負載註記**（不改變判定）：每個 job 都記錄訓練期間的平均 load1、整機平均忙碌核數（/proc/stat）和 updates/s（train.json 的 updates／active_s）。同一個 seed 的 S 和 C 是同時跑的，所以忙碌核數相同；第 1、2 批之間的負載差異只註記，不跨批比較。
+- 異常規則和 C／E 配對、R 相同：卡住（train.csv 超過門檻分鐘數沒更新）、中斷（程序不在、也沒有完成 eval；不自動重跑）、NaN／例外、訓練分數警示。
+- 里程碑：「round2 S 完成」（附各 seed 判定、成本保護門、負載註記）以及「round2 S … 異常」。
+
+### 歸因限制
+S 改變了 head 的輸入（多了 L1 的 3,072 維），也讓每次 update 變慢，所以 180 分鐘內 S 的 env steps、局數和 update 數都會比 C 少，以 episode 計的 ε 衰減和 target 同步節奏也會跟著變。**S 對 C 的結果只能歸因到「整套 S 設定在相同 active 時間預算下」**，不能說是單純「特徵比較多」造成的。
+
+### 已知風險（事前寫下）
+smoke（SMOKE.md）顯示 S 的 updates/s 約為 C 的 0.6–0.8 倍，低於成本保護門的 0.85。所以 S 有可能分數過了，卻因為成本保護門判定不採用。這個風險在開跑前就已經知道，不會因此在事後改門檻。
