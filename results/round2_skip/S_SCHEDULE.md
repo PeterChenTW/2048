@@ -27,9 +27,12 @@
 - **總結：** 列出每個正式 seed 的配對差（S−C 的 mean 差、mean 比值、≥1024 差），以及跨 seed 的樣本 SD 和範圍。3 個 seed 就是 3 條確定性軌跡。
 - **其他：** t90／120／150 只對 S 做探索性快照和 eval。完成和異常都寫進 experiments/milestones.json，前綴「round2 S」。結果會以 `S_RESULTS.md`、`runs/`、`controls/` 自動 commit 到本目錄並 push，不 force。
 
+- **修訂 6（PM 10-18 18:13 事前登記）：** 正式 seed 未過門，但 t180 mean 比值 ×1.00–1.20 且 S/C updates 總數比值 <0.90 → 判 INCONCLUSIVE_COMPUTE（因運算量無法判定，PM 決定是否乾淨負載補跑），其餘未過＝FAIL，PASS 不受影響。整體：三個 PASS 才採用；任一 FAIL 不採用；無 FAIL 但有 INCONCLUSIVE_COMPUTE＝待補跑（自然推論）。S_RESULTS 每 seed 列判定與 updates 比值。s404 探索性。
+
 ## 變更紀錄
 - 14:05：排程器第一次啟動（修訂 1：兩批、同時段 C-skipctl）。
 - 14:10：依修訂 2 取消成本門，改報三個診斷比值；commit 核對值改為 6c39511。
 - 14:24：依修訂 3 拿掉 C-skipctl，改用既有 C 軌跡；只剩一批三個 S；加上旗標核對和 C_s303 t180 開跑條件；commit 核對值改為 c0dc1c3。三次都是在任何 job 開跑之前改的。
 - 14:35：依修訂 4 加跑探索性 S_s404（對照 C_s404 t180），四個 job 共用 0-7；開跑條件加上 C_s404 t180 eval；新增「負載乾淨的比較」和運算量偏差註記；commit 核對值改為 e9ab8a3。同樣是在任何 job 開跑之前改的。
 - 18:06：依修訂 5（PM 17:59 決定；R futility 提前終止）改開跑條件：不需 R quad done、不需 20:30、C_s404 t180 改成判定前才需要；開跑時只允許 C_s404 的程序繼續跑；C_s303 t180、四 seed 旗標一致、固定 commit e9ab8a3、wt-skip-run 乾淨（新加 `git status --porcelain` 檢查）照舊。排程器正常 tick 在 **18:06:59** 開跑四個 S（CPU 0–7，與 C_s404 共 10 thread／8 核）。預估：t90 約 19:37、t120 約 20:07、t150 約 20:37、t180 約 21:07，eval 與判定約 21:10–21:20（台北時間）。測試 76/76 通過；改前備份在 skip-run/bak_amend5/。
+- 18:15：依修訂 6 更新結果產生器（PASS／FAIL／INCONCLUSIVE_COMPUTE＋整體結論），測試 87/87；loop 經 keepalive 安全重開，S 四個 job 與 C_s404 訓練不受影響；改前備份 skip-run/bak_amend6/。
