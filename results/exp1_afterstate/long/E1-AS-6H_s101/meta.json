@@ -1,0 +1,21 @@
+{
+  "group": "E1-AS-6H",
+  "seed": 101,
+  "wave": "extra",
+  "commit": "497bad4730adbbc6bd866d82a0ddf53688764579",
+  "base": {
+    "BASE_WINNER": "A",
+    "BASE_ARCH": "onehot_dueling",
+    "BASE_FLAGS": "--replay-ratio 0.45 --eps-schedule episode_exp --eps-start 0.15 --eps-min 0.001 --eps-decay 0.999 --eps-decay-start-episode 128"
+  },
+  "started": "2026-10-18 11:27 Taipei",
+  "minutes": 360,
+  "long": true,
+  "script": "/workspace/rl2048-review/.venv/bin/python main.py train --from-scratch --per-max-priority tree --budget-clock active --arch onehot_dueling --replay-ratio 0.45 --eps-schedule episode_exp --eps-start 0.15 --eps-min 0.001 --eps-decay 0.999 --eps-decay-start-episode 128 --arch onehot_afterstate --seed 101 --threads 2 --minutes 360 --save-every 1 --save-as /workspace/rl2048-review/experiments/runs/E1-AS-6H_s101/ckpt --log /workspace/rl2048-review/experiments/runs/E1-AS-6H_s101/train.csv > /workspace/rl2048-review/experiments/runs/E1-AS-6H_s101/train.out 2>&1",
+  "launcher_pid": 342200,
+  "nice": 10,
+  "cpus": "4-7",
+  "mark": [
+    180
+  ]
+}
