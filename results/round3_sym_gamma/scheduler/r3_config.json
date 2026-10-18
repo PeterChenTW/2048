@@ -1,0 +1,259 @@
+{
+ "note": "ROUND3_PREREG：2×2（C／G／Y／GY），3 批×3 job（每批一個 seed 的 G、Y、GY），對照為既有同 seed t180 C 軌跡。",
+ "prereg": "results/round3_sym_gamma/ROUND3_PREREG.md（2026-10-18 16:33 台北，commit d70a972）",
+ "code_dir": "/workspace/rl2048-review/experiments/wt-round3-run",
+ "expected_commit": "d70a97295fa339aa8aa9d9e336348affcdc99e4c",
+ "python": "/workspace/rl2048-review/.venv/bin/python",
+ "runs_dir": "/workspace/rl2048-review/round3-run/runs",
+ "repo": "/workspace/rl2048-review/experiments/wt-sym-gamma",
+ "results_subdir": "results/round3_sym_gamma",
+ "branch": "exp/round3-sym-gamma",
+ "corner_dir": "/workspace/rl2048-review/corner",
+ "nice": 10,
+ "threads": 2,
+ "minutes": 180,
+ "snapshots": [
+  90,
+  120,
+  150
+ ],
+ "interval_s": 30,
+ "start_requires": {
+  "s_runs": "/workspace/rl2048-review/skip-run/runs",
+  "s_jobs": [
+   "S_s101",
+   "S_s202",
+   "S_s303",
+   "S_s404"
+  ],
+  "idle_checks": 2,
+  "idle_interval_s": 30,
+  "max_load1": 3.0,
+  "control_ready": [
+   "303"
+  ],
+  "delay_alert_min": 60
+ },
+ "common": [
+  "--arch",
+  "onehot_afterstate",
+  "--from-scratch",
+  "--n-step",
+  "1",
+  "--memory-capacity",
+  "6000",
+  "--replay-ratio",
+  "0.45",
+  "--per-max-priority",
+  "tree",
+  "--reward-mode",
+  "log",
+  "--gamma",
+  "0.99",
+  "--eps-schedule",
+  "episode_exp",
+  "--eps-start",
+  "0.15",
+  "--eps-min",
+  "0.001",
+  "--eps-decay",
+  "0.999",
+  "--eps-decay-start-episode",
+  "128",
+  "--restart-frac",
+  "0",
+  "--budget-clock",
+  "active"
+ ],
+ "arm_flags": {
+  "C": [],
+  "G": [
+   "--reward-mode",
+   "raw",
+   "--gamma",
+   "1.0",
+   "--value-rescale",
+   "h"
+  ],
+  "Y": [
+   "--sym-aug",
+   "random"
+  ],
+  "GY": [
+   "--reward-mode",
+   "raw",
+   "--gamma",
+   "1.0",
+   "--value-rescale",
+   "h",
+   "--sym-aug",
+   "random"
+  ]
+ },
+ "expected_config_diff": {
+  "G": {
+   "reward_mode": "raw",
+   "gamma": 1.0,
+   "value_rescale": "h"
+  },
+  "Y": {
+   "sym_aug": "random"
+  },
+  "GY": {
+   "reward_mode": "raw",
+   "gamma": 1.0,
+   "value_rescale": "h",
+   "sym_aug": "random"
+  }
+ },
+ "batches": [
+  {
+   "id": 1,
+   "cpus": "0-5",
+   "seed": 303,
+   "jobs": [
+    "G_s303",
+    "Y_s303",
+    "GY_s303"
+   ]
+  },
+  {
+   "id": 2,
+   "cpus": "0-5",
+   "seed": 202,
+   "jobs": [
+    "G_s202",
+    "Y_s202",
+    "GY_s202"
+   ]
+  },
+  {
+   "id": 3,
+   "cpus": "0-5",
+   "seed": 101,
+   "jobs": [
+    "G_s101",
+    "Y_s101",
+    "GY_s101"
+   ]
+  }
+ ],
+ "jobs": [
+  {
+   "name": "G_s303",
+   "arm": "G",
+   "seed": 303,
+   "batch": 1
+  },
+  {
+   "name": "Y_s303",
+   "arm": "Y",
+   "seed": 303,
+   "batch": 1
+  },
+  {
+   "name": "GY_s303",
+   "arm": "GY",
+   "seed": 303,
+   "batch": 1
+  },
+  {
+   "name": "G_s202",
+   "arm": "G",
+   "seed": 202,
+   "batch": 2
+  },
+  {
+   "name": "Y_s202",
+   "arm": "Y",
+   "seed": 202,
+   "batch": 2
+  },
+  {
+   "name": "GY_s202",
+   "arm": "GY",
+   "seed": 202,
+   "batch": 2
+  },
+  {
+   "name": "G_s101",
+   "arm": "G",
+   "seed": 101,
+   "batch": 3
+  },
+  {
+   "name": "Y_s101",
+   "arm": "Y",
+   "seed": 101,
+   "batch": 3
+  },
+  {
+   "name": "GY_s101",
+   "arm": "GY",
+   "seed": 101,
+   "batch": 3
+  }
+ ],
+ "eval": {
+  "policy": "greedy",
+  "games": 100,
+  "seed_start": 1000,
+  "board": "fast",
+  "max_steps": 5000,
+  "quota_min": 30,
+  "corner_quota_min": 20
+ },
+ "rules": {
+  "ratio": 1.2,
+  "pp_1024": 10,
+  "abs_mean": 15000,
+  "abs_r1024": 0.8,
+  "stall_min": 10
+ },
+ "controls": {
+  "101": {
+   "name": "E1-AS-LONG_s101",
+   "dir": "/workspace/rl2048-review/experiments/runs/E1-AS-LONG_s101",
+   "eval": "evals/t0180.json",
+   "require": [],
+   "load": null,
+   "load_note": "未記錄（extra 排程器未取樣；08:01–11:21 台北，兩個 LONG 共用 CPU 4–7）"
+  },
+  "202": {
+   "name": "E1-AS-LONG_s202",
+   "dir": "/workspace/rl2048-review/experiments/runs/E1-AS-LONG_s202",
+   "eval": "evals/t0180.json",
+   "require": [],
+   "load": null,
+   "load_note": "未記錄（extra 排程器未取樣；08:01–11:21 台北，兩個 LONG 共用 CPU 4–7）"
+  },
+  "303": {
+   "name": "C_s303",
+   "dir": "/workspace/rl2048-review/experiments/runs/round2/C_s303",
+   "eval": "eval.json",
+   "require": [
+    "eval_end"
+   ],
+   "load": {
+    "state": "/workspace/rl2048-review/experiments/round2/pair_state.json",
+    "pair": "303"
+   },
+   "load_note": "15:56–16:03（台北）機器降速，見 R_RESULTS"
+  }
+ },
+ "formal_seeds": [
+  "101",
+  "202",
+  "303"
+ ],
+ "compute_ref": {
+  "name": "C_s101（round2，8 核滿載）",
+  "ups": 32.4
+ },
+ "compute_bias_seeds": [
+  "101",
+  "202"
+ ],
+ "compute_bias_flag": "可能受運算量偏差影響",
+ "milestones": true
+}
