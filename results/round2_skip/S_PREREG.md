@@ -107,3 +107,48 @@ smoke（SMOKE.md）顯示 S 的 updates/s 約為 C 的 0.6–0.8 倍，低於成
 
 ### 程式
 排程器和 S_RESULTS 產生器只要用到成本門，都已一起改掉：判定只看分數門檻，另外輸出 updates、env_steps、updates/s 三個 S/C 比值。訓練程式（main.py／value_net.py 等）完全沒動。排程器的固定 worktree `wt-skip-run` 改指向本修訂的 commit，核對值也同步更新。兩個 commit 之間只差文件與 results/，訓練程式碼相同。
+
+## 修訂 3（2026-10-18 14:12 台北，PM 決定；任何 S 訓練開跑之前、任何 S 結果出來之前修訂）
+
+本修訂在任何 S 訓練開跑前寫成並 commit。此時排程器仍在等待，S 的 `runs/` 還沒建立。
+
+### 理由：軌跡確定性
+同一個 seed 的訓練是逐局確定的。CPU 負載只會影響「第 t 分鐘跑到第幾局」，不會改變軌跡本身。證據如下，取各 run 的 `train.csv`，在共同局數內逐局比對 `(score_v2, steps)`，以 E1-AS-LONG 為基準：
+
+| seed | run（commit 497bad4） | 局數 | 逐局一致 | 唯一不一致的局 |
+|---|---|---|---|---|
+| 101 | round2 C_s101（90 分鐘） | 1,169 | 1,168 | 第 1,169 局，即時間到被截斷的最後一局 |
+| 101 | E1-AS_s101（90 分鐘） | 1,219 | 1,218 | 最後一局（截斷） |
+| 101 | E1-AS-6H_s101（進行中） | 1,745 | 1,745 | — |
+| 202 | round2 C_s202（進行中） | 872 | 872 | — |
+| 202 | E1-AS_s202（90 分鐘） | 1,416 | 1,415 | 最後一局（截斷） |
+
+另外，C_s101 和 LONG_s101 的 `loss_first_50_mean` 完全相同（0.00616232902277261）。所以另跑一個同時段的 C 對照，得到的只是同一條軌跡，額外的資訊只有負載不同造成的進度差。因此拿掉 C-skipctl，改用既有、同 seed、180 分鐘的 C 軌跡當對照。
+
+### 改了什麼
+- **arms：** 只跑 S_s101、S_s202、S_s303（S 的旗標不變）。C_s101-skipctl、C_s202-skipctl、C_s303-skipctl 取消。
+- **對照只用 t180 這個預定終點：**
+  - s101 對 `experiments/runs/E1-AS-LONG_s101/evals/t0180.json`。這是 LONG 訓練結束時的 checkpoint（active 10,800 秒），目前 mean 7,898、≥1024 27%。
+  - s202 對 `experiments/runs/E1-AS-LONG_s202/evals/t0180.json`，目前 mean 10,349、≥1024 49%。
+  - s303 對 `experiments/runs/round2/C_s303/eval.json`。這是 pair_run 第二輪 s303 那組（C＋R，180 分鐘）結束時的 eval，需要 `eval_end` 存在；預計約 17:50 完成。
+  - 三個對照的 eval 協定和 S 相同：greedy、100 局、seed 1000 起、board fast、max-steps 5000。LONG 的 t90／120／150 不使用。
+- **程式等價性：** 三個對照都在 497bad4 跑。497bad4 → 33ae2ba 只多了 `tools/analyze_q_td.py` 和它的測試，訓練程式相同；S 的程式在 `--value-skip none` 時和 33ae2ba 逐位元相同，已有測試驗證。
+- **旗標一致性（開跑前核對）：**
+  - 比較對象是 S 在旗標關閉時（拿掉 `--value-skip l1`）的訓練指令，以及 LONG_s101、LONG_s202、C_s303 實際記錄在 meta.json 的 script。
+  - 用固定 worktree 的 parser 解析兩邊，比較兩層：一是 CLI 參數，未指定的值換成 DQNConfig 預設值再比；二是照 main.train 規則建出的有效 DQNConfig 全部欄位。
+  - 只排除 minutes、save_every、save_as、log 這四項。
+  - 不一致就不開跑，並發「round2 S … 異常」里程碑。
+  - 14:12 已先做一次靜態核對，全部一致，C_s303 那份是用 pair_run 的設定重建的。開跑當下會用 C_s303 實際的 meta.json 再核對一次。
+- **分批：** 只有一批，S_s101、S_s202、S_s303 同時開跑。每個 2 threads、nice 10、180 分鐘 active，三個共用 CPU 0–7（6 個 thread 用 8 核）。
+- **開跑條件：** 照舊（R quad 的 `quad_state.json` 有 `done`、機器連續 2 次空閒、已過 20:30）。另外要等 C_s303 的 t180 eval 存在（`eval.json` 有效，而且 `eval_end` 存在）。預計約 21:00 → 00:30。
+  - 排程器只讀 `quad_state.json` 的 `done`，不讀其他欄位。所以 R 那批改成 R_s101、R_s202、C_s404、R_s404 不影響判斷。
+- **判定：** 照修訂 2。每個 seed 都要 `mean_S/mean_C ≥ 1.20`，而且 `Δ(≥1024) ≥ +10pp`，三個 seed 全過才採用。updates、env_steps、updates/s 的 S/C 比值是診斷數字，不影響判定。絕對目標另外列。
+- **必報並列：** 每個 seed 都把 S 和對照的 load1、updates、env_steps、updates/s 放在一起列。
+  - C_s303 的 load1 取自 pair_state 的 s303 那組平均。
+  - LONG 的 extra 排程器沒有取樣 load1，所以標為「未記錄」。LONG 當時在 08:01–11:21 跑，兩個 LONG 共用 CPU 4–7。
+- **總結：** 加上每個 seed 的配對差（S−C）：mean 差、mean 比值、≥1024 差（pp），以及這些值在三個 seed 之間的標準差（樣本 SD，n−1）和範圍。要註明 3 個 seed 就是 3 條確定性軌跡（n=3），沒有 seed 內的重複，所以 seed 之間的變異是唯一的變異估計。
+- **探索性快照：** S 仍然存 t90／120／150 並做 eval，但不參與判定，也不拿來和對照比。
+- **其他不變：** 異常規則、里程碑前綴、夜間回報規則、結果發佈方式都和之前一樣。
+
+### 歸因限制（新增）
+對照和 S 不是同時段跑的。因為軌跡確定，負載只會改變 180 分鐘 active 內跑到軌跡的哪個位置。S 若在比較空的機器上跑，同樣時間內 updates 可能更多，這個差別會反映在 updates、env_steps、updates/s 的並列數字上，不做校正，只註記。結果仍然只能歸因到「整套 S 設定在 180 分鐘 active 預算下（含負載條件）」。
