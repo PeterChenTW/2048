@@ -1,0 +1,11 @@
+[delegate] grok: check 1: 1/9 done, files changed 1, progress.md changed, strikes 0/3
+[delegate] grok: check 2: 6/9 done, files changed 1, progress.md changed, strikes 0/3
+[delegate] engine=grok task=research status=ok attempts=grok:ok secs=752.4 run_id=d69da0aaad53
+我先讀研究上下文與寫作規則，並建立進度檔，再依清單做文獻對照。文獻條件已對上我們的 #2 數字。接著寫入 `FINDINGS.md`，並用 curl 核對網址。文獻已寫入 `FINDINGS.md` 的「## 文獻」。16 個引用網址皆為 HTTP 200。沒有跑 benchmark。
+
+大 buffer 在固定 replay ratio 0.45 下把資料年齡放大約 16.7 倍（6,000 步對應 2,700 次更新，100,000 步對應 45,000 次更新）。這比較符合 Zhang 的「短訓練裡 10^5 級 buffer 會傷非線性 Q」以及 Fedus 的「資料變舊有害」，不符合 Fedus 在 Atari 上「1M 提到 10M、再配 3-step 就會更好」。我們的 n=3 在約 0.5M 步已經崩潰，100k buffer 沒有把它救回來。`onehot_afterstate` 應維持 n=1、capacity 6,000、replay ratio 0.45。
+
+Acting 已經把最多 4 個 afterstate 一次 forward。瓶頸在 batch 128 的 learner backward，不在這 4 張。`channels_last` 不列為優先。多環境只建議同一程序裡同步多盤，用來加大 acting batch。EnvPool、IMPALA 異步與 replay ratio 4–16 都不適合目前的 8 CPU 短預算。
+
+- `/workspace/rl2048-review/wt-research2/research/round2/track2_cpu_efficiency/FINDINGS.md`
+- `/workspace/rl2048-review/wt-research2/research/round2/track2_cpu_efficiency/PROGRESS.md`

@@ -1,0 +1,29 @@
+[delegate] engine=agy-gemini task=bulk status=ok attempts=agy-gemini:ok secs=264.7 run_id=3257e5d800c7
+已啟動後台任務檢查 36 個網址的 HTTP 狀態碼與重試機制，正在等待檢驗完成。
+檢驗中，等待指令回應。
+正在執行循序 curl 檢查並產出結果，請稍候。
+已發起循序 curl 檢驗任務，稍候將在完成時自動接收通知。
+### 任務完成總結
+
+已獨立完成第二輪文獻研究所有網址（共 36 個獨立網址）之擷取與 HTTP 存活性檢驗。
+
+#### 檢驗結果摘要
+- **總網址數**：36 個獨立 URL
+- **HTTP 200 通過數**：36 / 36（100% 通過）
+- **重試或替代確認**：
+  - `https://www.jstage.jst.go.jp/article/ipsjjip/29/0/29_336/_pdf`：並發檢驗時偶發 J-STAGE 伺服器端 TLS 握手超時/重置（HTTP 000），在循序檢驗與重試下均穩定返回 HTTP 200（Content-Type: `application/pdf;charset=UTF-8`，檔案大小 956 KB），確認有效。
+- **DROP 清單**：無（0 個，本輪文獻網址全數有效）。
+- **未修改任何程式碼與各軌道之 `FINDINGS.md`，亦未改動 `/workspace/rl2048-review/experiments/` 或執行 git commit/push**。
+
+---
+
+### 產出檔案清單（絕對路徑）
+
+1. **進度追蹤紀錄**：
+   [`/workspace/rl2048-review/wt-research2/research/round2/urlcheck/PROGRESS.md`](file:///workspace/rl2048-review/wt-research2/research/round2/urlcheck/PROGRESS.md)
+2. **去重網址清單（每行一個，共 36 行）**：
+   [`/workspace/rl2048-review/wt-research2/research/round2/urls.txt`](file:///workspace/rl2048-review/wt-research2/research/round2/urls.txt)
+3. **HTTP 狀態碼檢驗清單（依網址排序）**：
+   [`/workspace/rl2048-review/wt-research2/research/round2/url_check.txt`](file:///workspace/rl2048-review/wt-research2/research/round2/url_check.txt)
+4. **完整驗證報告（含統計、重試說明、各軌道對應與跨軌引用）**：
+   [`/workspace/rl2048-review/wt-research2/research/round2/URL_VERIFICATION.md`](file:///workspace/rl2048-review/wt-research2/research/round2/URL_VERIFICATION.md)

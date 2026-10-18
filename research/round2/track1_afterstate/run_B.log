@@ -1,0 +1,19 @@
+[delegate] agy-argon: check 1: 9/13 done, files changed 0, progress.md changed, strikes 0/3
+[delegate] agy-argon: check 2: 12/13 done, files changed 1, progress.md changed, strikes 0/3
+[delegate] engine=agy-argon task=research status=ok attempts=agy-argon:ok secs=639.2 run_id=473c51232cd1
+已啟動網址驗證與檔案狀態檢查指令，正在等待背景任務完成。
+已完成 Track 1「afterstate $V$ 的強化」子任務 B（發想、候選實驗與摘要）的所有工作與自查驗證：
+
+1. **「`## 摘要`」（置於 [`FINDINGS.md`](file:///workspace/rl2048-review/wt-research2/research/round2/track1_afterstate/FINDINGS.md#L3-L11) 最上方）**：以 6 條重點濃縮目前 `--arch onehot_afterstate` 的四大瓶頸、文獻與發想的四大對應強化方向，以及三個正交候選實驗與組合路線。
+2. **「`## 發想（非文獻）`」（[`FINDINGS.md`](file:///workspace/rl2048-review/wt-research2/research/round2/track1_afterstate/FINDINGS.md#L424-L561)）**：提出 5 條標明 **【發想】** 的具體強化設計（所有估計值均標明「估計」並附算術推導）：
+   - **【發想 1】混合式無展開多步 Afterstate $\lambda$-Target + 非貪婪探索步截斷遮罩**：對連續貪婪步直接以 `target_model` 評估已存下的 $x_{t+1\dots t+3}$（$\lambda=0.5$），遇探索步則在 $s_{t+m}$ 截斷重算 Double greedy 價值；在加速 3 步信用分配的同時，單次 `replay()` 的 target 前向推論盤面數減少估計約 `30%`。
+   - **【發想 2】零初始化階層式階段殘差價值頭（Zero-Init Hierarchical Stage-Residual Head）**：在 [`value_net.py`](file:///workspace/rl2048-review/wt-research2/value_net.py#L32-L59) 設全階段共享 `V_base` 與 $\ge 512$、$\ge 1024$ 兩個零初始化累加殘差分支，天然實現 100% Weight Promotion 與跨階段邊界連續性，CPU 計算開銷增加估計 $< 1.5\%$。
+   - **【發想 3】盤面結構感知的樂觀價值先驗 + 極低 $\epsilon$（`0.03 -> 0.001`）**：將 `head[-1].bias` 初始化為對齊 `log` reward 收斂中位數的 `6.0`，並加上 16 通道（空格與 $\ge 256$ 大磚）可學習樂觀先驗，將後段隨機破壞角落大磚的頻率降低估計約 `15.5` 倍。
+   - **【發想 4】EMA 時間相干梯度門控（EMA-TC Gradient Gate）**：在 [`afterstate_agent.py`](file:///workspace/rl2048-review/wt-research2/afterstate_agent.py#L99-L101) 以滑動視窗（$\beta_{\text{tc}}=0.999$）計算每個參數的 $|m^{\text{signed}}_i|/m^{\text{abs}}_i$，將已收斂參數受到的隨機生磚與 PER 雜訊壓低估計達 `20` 倍，抑制中後期回跌。
+   - **【發想 5】零額外卷積開銷的 L1+L2 Skip Concat + 全局通道計數／四角落直連捷徑**：在 [`dueling.py`](file:///workspace/rl2048-review/wt-research2/dueling.py#L102-L110) 將已算好卻被丟棄的第一層相鄰特徵 `h, v`（3,072 維）連同 16 通道全局計數與 4 角落 one-hot（80 維）拼入特徵向量，零額外卷積開銷。
+3. **「`## 候選實驗（給整合用）`」（[`FINDINGS.md`](file:///workspace/rl2048-review/wt-research2/research/round2/track1_afterstate/FINDINGS.md#L563-L684)）**：設計 **T1-Exp1**（3-step $\lambda$-target $\times$ 低 $\epsilon$）、**T1-Exp2**（Skip Concat + 階段殘差頭）、**T1-Exp3**（結構化樂觀先驗 + EMA-TC 門控）三個正交候選實驗與組合路線，完整列出可否證假說、Arms、seeds `101/202/303`、2 CPU/job、active time 90m/3h、事前登記每 seed 判定門檻、CPU/工程小時估計與跨路線交互作用。
+4. **自查與驗證**：維持原有「`## 文獻`」內容不變，所有 14 個唯一 URL 經 `curl -sL` 驗證均為 HTTP `200`，未修改任何 repo 程式碼。
+
+### 產出與更新檔案之絕對路徑
+- [`/workspace/rl2048-review/wt-research2/research/round2/track1_afterstate/FINDINGS.md`](file:///workspace/rl2048-review/wt-research2/research/round2/track1_afterstate/FINDINGS.md)
+- [`/workspace/rl2048-review/wt-research2/research/round2/track1_afterstate/PROGRESS.md`](file:///workspace/rl2048-review/wt-research2/research/round2/track1_afterstate/PROGRESS.md)
