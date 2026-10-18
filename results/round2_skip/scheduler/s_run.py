@@ -1,0 +1,638 @@
+#!/usr/bin/env python3
+"""S 正式訓練自動接續排程器；獨立複製參考邏輯，不 import experiments。
+
+所有真實訓練/eval 只在固定 worktree 執行。S2_DRY_RUN=1 禁止所有 launch、
+快照寫入、發佈及里程碑；使用獨立 dry-run state，僅產生本地狀態。
+"""
+import csv
+import fcntl
+import hashlib
+import json
+import math
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+HERE = Path(__file__).resolve().parent
+TAIPEI = ZoneInfo("Asia/Taipei")
+EXP = Path("/workspace/rl2048-review/experiments")
+RESULTS = "results/round2_skip"
+BRANCH = "exp/round2-skip"
+GAP = 60.0
+
+
+def now():
+    return datetime.now(TAIPEI).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def load(path, default=None):
+    try:
+        return json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return default
+
+
+def save_json(path, obj):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=2, allow_nan=False) + "\n")
+    tmp.replace(path)
+
+
+def fmt(value, spec=".1f"):
+    return "待資料" if value is None else format(value, spec)
+
+
+def snap_label(m):
+    return f"t{int(m):04d}"
+
+
+class Scheduler:
+    def __init__(self):
+        self.cfg = json.loads(Path(os.environ.get("S2_CONFIG", HERE / "s_config.json")).read_text())
+        c = self.cfg
+        self.dry_run = os.environ.get("S2_DRY_RUN") == "1"
+        self.state_path = Path(os.environ.get("S2_STATE", HERE / "s_state.json"))
+        self.runs = Path(os.environ.get("S2_RUNS", c["runs_dir"]))
+        self.code = Path(os.environ.get("S2_CODE", c["code_dir"]))
+        self.repo = Path(os.environ.get("S2_REPO", c["repo"]))
+        self.status_path = Path(os.environ.get("S2_STATUS", HERE / "S_STATUS.md"))
+        self.log_path = Path(os.environ.get("S2_LOG", HERE / "s_run.log"))
+        self.miles = Path(os.environ.get("S2_MILESTONES", EXP / "milestones.json"))
+        # 真實模式必須與 pair_run 使用相同 flock；測試覆寫 miles 後自動隔離鎖。
+        default_lock = EXP / ".milestones.lock" if self.miles == EXP / "milestones.json" else self.miles.parent / ".milestones.lock"
+        self.miles_lock = Path(os.environ.get("S2_MILESTONES_LOCK", default_lock))
+        self.quad_state = Path(os.environ.get("S2_QUAD_STATE", c["start_requires"]["quad_state"]))
+        self.publish_enabled = not self.dry_run and os.environ.get("S2_NO_PUBLISH") != "1" and os.environ.get("S2_PUBLISH", "1") != "0"
+        self.py = c["python"]
+        self.jobs = {j["name"]: j for j in c["jobs"]}
+        self.batches = {str(b["id"]): b for b in c["batches"]}
+
+    def log(self, text):
+        line = f"[{now()} 台北] {text}"
+        print(line, flush=True)
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.log_path.open("a") as f:
+            f.write(line + "\n")
+
+    def now_epoch(self):
+        return time.time()
+
+    def process_args(self):
+        """讀 /proc 的 argv；不把 shell 提示詞或 pgrep 本身誤認為訓練。"""
+        result = []
+        for p in Path("/proc").iterdir():
+            if not p.name.isdigit() or int(p.name) == os.getpid():
+                continue
+            try:
+                args = [s.decode(errors="replace") for s in (p / "cmdline").read_bytes().split(b"\0") if s]
+                if args:
+                    result.append(args)
+            except OSError:
+                pass
+        return result
+
+    def machine_busy(self):
+        # 工具的隔離 PID namespace 只看得到這次 exec，不能當成全機空閒。
+        if not self.process_scope_ok():
+            return True
+        for args in self.process_args():
+            for i, arg in enumerate(args):
+                if Path(arg).name == "eval.py":
+                    return True
+                if Path(arg).name == "main.py" and i + 1 < len(args) and args[i + 1] == "train":
+                    return True
+        return False
+
+    def process_scope_ok(self):
+        try:
+            init_name = Path("/proc/1/comm").read_text().strip()
+            return not init_name.startswith("codex")
+        except OSError:
+            return False
+
+    def job_alive(self, name):
+        needle = str(self.runs / name) + "/"
+        return any(needle in " ".join(args) for args in self.process_args())
+
+    def run(self, args, **kwargs):
+        # 管理/驗證指令維持低優先級；訓練/eval 的 nice 由 launch_command 控制。
+        return subprocess.run(["nice", "-n", "19", *map(str, args)], capture_output=True, text=True,
+                              timeout=kwargs.pop("timeout", 45), **kwargs)
+
+    def eval_args(self, checkpoint, output):
+        e = self.cfg["eval"]
+        return ["timeout", "--signal=TERM", "--kill-after=30s", str(e["quota_min"]) + "m", self.py,
+                "eval.py", "--checkpoint", str(checkpoint), "--policy", e["policy"], "--games", str(e["games"]),
+                "--seed-start", str(e["seed_start"]), "--board", e["board"], "--max-steps", str(e["max_steps"]), "--json", str(output)]
+
+    def script(self, job):
+        d = self.runs / job["name"]
+        c = self.cfg
+        train = [self.py, "main.py", "train", *c["common"], *c["arm_flags"][job["arm"]], "--seed", str(job["seed"]),
+                 "--threads", str(c["threads"]), "--minutes", str(c["minutes"]), "--save-every", "1",
+                 "--save-as", str(d / "ckpt"), "--log", str(d / "train.csv")]
+        q = lambda p: shlex.quote(str(p))
+        return (f"{shlex.join(train)} > {q(d / 'train.out')} 2>&1 && date +%s > {q(d / 'eval_start')} && "
+                f"OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 {shlex.join(self.eval_args(d / 'ckpt', d / 'eval.json'))} "
+                f"> {q(d / 'eval.out')} 2>&1 && date +%s > {q(d / 'eval_end')}")
+
+    def launch_command(self, job):
+        batch = self.batches[str(job["batch"])]
+        return ["setsid", "nohup", "taskset", "-c", batch["cpus"], "nice", "-n", str(self.cfg["nice"]), "bash", "-c", self.script(job)]
+
+    def spawn(self, args, output, threads=1):
+        if self.dry_run:
+            raise RuntimeError("dry-run 禁止 launch")
+        env = dict(os.environ, OMP_NUM_THREADS=str(threads), MKL_NUM_THREADS=str(threads), OPENBLAS_NUM_THREADS=str(threads))
+        with Path(output).open("a") as out:
+            return subprocess.Popen(args, cwd=self.code, env=env, stdin=subprocess.DEVNULL,
+                                    stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+
+    def milestone(self, text):
+        if self.dry_run:
+            return
+        self.miles_lock.parent.mkdir(parents=True, exist_ok=True)
+        with self.miles_lock.open("a") as lk:
+            fcntl.flock(lk, fcntl.LOCK_EX)
+            ms = load(self.miles, [])
+            if not isinstance(ms, list):
+                raise ValueError("里程碑不是陣列，停止覆寫")
+            if not any(m.get("text") == text for m in ms):
+                ms.append(dict(time=datetime.now(TAIPEI).strftime("%Y-%m-%d %H:%M"), text=text, reported=False))
+                save_json(self.miles, ms)
+                self.log("里程碑：" + text)
+
+    def alert_once(self, st, job, text):
+        if self.dry_run:
+            return
+        kind = text.split("：")[0]
+        key = f"{job}|{kind}"
+        seen = st.setdefault("alerted", [])
+        if key in seen:
+            return
+        # 先查共用檔，避免 state 寫入前當機導致數字改變後再發一次。
+        prefix = f"round2 S {job} 異常 — {kind}："
+        self.miles_lock.parent.mkdir(parents=True, exist_ok=True)
+        with self.miles_lock.open("a") as lk:
+            fcntl.flock(lk, fcntl.LOCK_EX)
+            ms = load(self.miles, [])
+            if not isinstance(ms, list):
+                raise ValueError("里程碑不是陣列，停止覆寫")
+            if not any(m.get("text", "").startswith(prefix) for m in ms):
+                ms.append(dict(time=datetime.now(TAIPEI).strftime("%Y-%m-%d %H:%M"),
+                               text=f"round2 S {job} 異常 — {text}", reported=False))
+                save_json(self.miles, ms)
+        seen.append(key)
+
+    def ready(self, st):
+        t = self.now_epoch()
+        req = self.cfg["start_requires"]
+        busy = self.machine_busy()
+        idle = st.setdefault("idle", {"count": 0})
+        if busy:
+            idle.update(count=0, last_epoch=None)
+        elif idle.get("last_epoch") is None or t - idle["last_epoch"] > 3 * req["idle_interval_s"]:
+            idle.update(count=1, last_epoch=t)
+        elif t - idle["last_epoch"] >= req["idle_interval_s"]:
+            idle.update(count=min(req["idle_checks"], idle["count"] + 1), last_epoch=t)
+        w = dict(quad_done=bool((load(self.quad_state, {}) or {}).get("done")), busy=busy,
+                 time_ok=t >= datetime.fromisoformat(req["not_before"]).timestamp(),
+                 idle_count=idle["count"], idle_ok=idle["count"] >= req["idle_checks"], checked=now())
+        w["process_scope_ok"] = self.process_scope_ok()
+        st["wait"] = w
+        return w
+
+    def launch(self, batch, st):
+        if self.dry_run:
+            return
+        commit_result = self.run(["git", "-C", self.code, "rev-parse", "HEAD"])
+        commit = commit_result.stdout.strip()
+        if commit_result.returncode or commit != self.cfg["expected_commit"]:
+            raise RuntimeError("固定程式 commit 不符，禁止開跑")
+        # 不覆蓋任何既有 job，也不對中斷的 job 自動重跑。
+        if any((self.runs / n).exists() for n in batch["jobs"]):
+            raise RuntimeError("批次 run 目錄已存在，禁止自動重跑")
+        b = st.setdefault("batches", {}).setdefault(str(batch["id"]), {})
+        b.update(started=now(), load_sum=0.0, load_n=0, busy_sum=0.0, busy_n=0, pids={})
+        st.setdefault("started", now())
+        save_json(self.state_path, st)  # 先保留批次；部分啟動失敗也不自動重跑。
+        for name in batch["jobs"]:
+            job = self.jobs[name]
+            d = self.runs / name
+            d.mkdir(parents=True, exist_ok=False)
+            meta = dict(job=job, commit=commit, prereg=self.cfg["prereg"], cpus=batch["cpus"], nice=self.cfg["nice"],
+                        threads=self.cfg["threads"], minutes=self.cfg["minutes"], snapshots=self.cfg["snapshots"],
+                        started=now() + " Taipei", script=self.script(job))
+            save_json(d / "meta.json", meta)
+            p = self.spawn(self.launch_command(job), d / "launch.out", self.cfg["threads"])
+            meta["launcher_pid"] = p.pid
+            save_json(d / "meta.json", meta)
+            b["pids"][name] = p.pid
+            st.setdefault("pids", {})[name] = p.pid
+            save_json(self.state_path, st)
+        self.log(f"批次 {batch['id']} 已啟動：{batch['jobs']}")
+        st.pop("launch_error", None)
+
+    def metrics(self, name):
+        d = self.runs / name
+        ev, tr = load(d / "eval.json"), load(d / "train.json")
+        if not (ev and tr and (d / "eval_end").exists()):
+            return None
+        # trainer 的 KeyboardInterrupt 可能正常寫出 JSON；它不是 t180 完成資料。
+        if tr.get("interrupted") or tr.get("stopped_reason") == "nonfinite_replay":
+            return None
+        try:
+            m = dict(mean=ev["mean"], median=ev["median"], r1024=ev["reach_rates"]["1024"], r2048=ev["reach_rates"]["2048"],
+                     updates=tr.get("updates"), env_steps=tr.get("env_steps"), rr=tr.get("replay_ratio_actual"),
+                     episodes=tr.get("episodes"), nan=tr.get("nan_count"), active_s=tr.get("active_s"),
+                     ups=tr["updates"] / tr["active_s"] if tr.get("active_s") and tr.get("updates") is not None else None,
+                     eval_min=ev.get("elapsed_seconds", 0) / 60)
+            if not all(math.isfinite(m[k]) for k in ("mean", "median", "r1024", "r2048")):
+                return None
+            try:
+                m["eval_min"] = (float((d / "eval_end").read_text()) - float((d / "eval_start").read_text())) / 60
+            except (ValueError, OSError):
+                pass
+            return m
+        except (KeyError, TypeError, ZeroDivisionError):
+            return None
+
+    def verdicts(self, st):
+        rows = []
+        R = self.cfg["rules"]
+        for seed in (101, 202, 303):
+            s, c = self.metrics(f"S_s{seed}"), self.metrics(f"C_s{seed}-skipctl")
+            if not (s and c):
+                rows.append(dict(seed=seed, pending=True))
+                continue
+            ratio = s["mean"] / c["mean"] if c["mean"] > 0 else None
+            dpp = 100 * (s["r1024"] - c["r1024"])
+            cost_ratio = s["updates"] / c["updates"] if s["updates"] is not None and c["updates"] and c["updates"] > 0 else None
+            score_ok = ratio is not None and ratio >= R["ratio"] and dpp >= R["pp_1024"] - 1e-9
+            cost_ok = cost_ratio is not None and cost_ratio >= R["cost_guard"]
+            rows.append(dict(seed=seed, pending=False, S=s, C=c, ratio=ratio, dpp=dpp, cost_ratio=cost_ratio,
+                             score_ok=score_ok, cost_ok=cost_ok, ok=score_ok and cost_ok,
+                             abs_S=s["mean"] > R["abs_mean"] and s["r1024"] >= R["abs_r1024"],
+                             abs_C=c["mean"] > R["abs_mean"] and c["r1024"] >= R["abs_r1024"]))
+        pending = any(r["pending"] for r in rows)
+        return dict(rows=rows, pending=pending, n_pass=sum(r.get("ok", False) for r in rows),
+                    adopt=not pending and all(r["ok"] for r in rows),
+                    absolute=not pending and all(r["abs_S"] for r in rows))
+
+    def anomalies(self, job):
+        d = self.runs / job["name"]
+        if not (d / "meta.json").exists():
+            return []
+        alive = self.job_alive(job["name"])
+        a = []
+        csvp = d / "train.csv"
+        if alive and not (d / "train.json").exists() and csvp.exists():
+            age = (self.now_epoch() - csvp.stat().st_mtime) / 60
+            if age > self.cfg["rules"]["stall_min"]:
+                a.append(f"卡住：train.csv {age:.0f} 分鐘沒更新")
+        if not alive and not (d / "eval_end").exists():
+            a.append("中斷：程序不在、也沒有完成 eval（不自動重跑，請判斷）")
+        rows = []
+        if csvp.exists():
+            with csvp.open() as f:
+                rows = list(csv.DictReader(f))
+        def finite(v):
+            try:
+                return math.isfinite(float(v))
+            except (ValueError, TypeError):
+                return False
+        bad = [r.get("episode", "?") for r in rows if r.get("nan_count") not in (None, "", "0", "0.0") or
+               not all(finite(r[k]) for k in ("loss", "q_mean", "td_abs_mean") if r.get(k) not in (None, ""))]
+        tr = load(d / "train.json", {}) or {}
+        out = ""
+        for f in ("train.out", "eval.out"):
+            if (d / f).exists():
+                with (d / f).open("rb") as h:
+                    h.seek(max(0, (d / f).stat().st_size - 20000))
+                    out += h.read().decode(errors="replace")
+        if bad or tr.get("nan_count", 0) or "Traceback" in out or "FloatingPointError" in out:
+            a.append(f"NaN／例外：episodes {bad[:5]}；train 非有限值 {tr.get('nan_count', 0)}")
+        if tr.get("interrupted"):
+            a.append("中斷：train.json 記錄 interrupted（不自動重跑）")
+        if len(rows) >= 400:
+            sc = [float(r["score_v2"]) for r in rows if finite(r.get("score_v2"))]
+            roll = [sum(sc[i - 200:i]) / 200 for i in range(200, len(sc) + 1, 50)]
+            if roll and roll[-1] < 0.75 * max(roll):
+                a.append(f"訓練分數警示：最近 200 局平均 {roll[-1]:,.0f}，低於最高 {max(roll):,.0f} 的 75%")
+        return a
+
+    def cpu_times(self):
+        lines = Path("/proc/stat").read_text().splitlines()
+        v = [float(x) for x in lines[0].split()[1:9]]  # guest 已包含在 user/nice，不重複加。
+        return sum(v), v[3] + v[4], sum(1 for line in lines if line.startswith("cpu") and line[3:4].isdigit())
+
+    def sample_load(self, b, training):
+        tot, idle, ncpu = self.cpu_times()
+        prev = b.get("cpu_prev")
+        b["cpu_prev"] = [tot, idle] if training else None
+        if training:
+            b["load_sum"] = b.get("load_sum", 0) + os.getloadavg()[0]
+            b["load_n"] = b.get("load_n", 0) + 1
+            if prev and tot > prev[0]:
+                busy = max(0, min(ncpu, ncpu * (1 - (idle - prev[1]) / (tot - prev[0]))))
+                b["busy_sum"] = b.get("busy_sum", 0) + busy
+                b["busy_n"] = b.get("busy_n", 0) + 1
+            b["machine_cores"] = ncpu
+        b["mean_load1"] = b.get("load_sum", 0) / b["load_n"] if b.get("load_n") else None
+        b["mean_busy_cores"] = b.get("busy_sum", 0) / b["busy_n"] if b.get("busy_n") else None
+
+    def snap_tick(self, js, d, training, batch):
+        # 與 pair_run 相同的 monotonic／60秒 gap 累積規則，重新開機不沿用舊時鐘。
+        mono = time.monotonic()
+        boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+        if training and js.get("boot_id") == boot and js.get("last_mono") is not None:
+            dt = mono - js["last_mono"]
+            if 0 < dt <= GAP:
+                js["active_s"] = js.get("active_s", 0) + dt
+        js.update(last_mono=mono if training else None, boot_id=boot)
+        if self.dry_run:
+            return
+        taken = js.setdefault("taken", [])
+        for m in self.cfg["snapshots"]:
+            if not (training and m not in taken and js.get("active_s", 0) >= 60 * m and (d / "ckpt").exists()):
+                continue
+            (d / "snapshots").mkdir(exist_ok=True)
+            dst = d / "snapshots" / f"{snap_label(m)}.pt"
+            valid = False
+            for _ in range(5):
+                shutil.copyfile(d / "ckpt", dst)
+                r = self.run(["taskset", "-c", batch["cpus"], self.py, "-c",
+                              f"import torch;torch.load({str(dst)!r},weights_only=False)"], timeout=15,
+                             env=dict(os.environ, OMP_NUM_THREADS="1", MKL_NUM_THREADS="1"))
+                if r.returncode == 0:
+                    valid = True
+                    break
+                time.sleep(2)
+            if not valid:
+                dst.unlink(missing_ok=True)
+                self.log(f"{d.name} {snap_label(m)} 快照驗證失敗，下次 tick 重試")
+                continue
+            taken.append(m)
+            js.setdefault("meta", {})[str(m)] = dict(active_s=js.get("active_s", 0), taken=now())
+        for m in taken:
+            out = d / "evals" / f"{snap_label(m)}.json"
+            key = str(m)
+            if out.exists() or any(str(out) in " ".join(a) for a in self.process_args()):
+                continue
+            tries = js.setdefault("eval_tries", {})
+            if tries.get(key, 0) >= 3:
+                continue
+            (d / "evals").mkdir(exist_ok=True)
+            tries[key] = tries.get(key, 0) + 1
+            args = ["setsid", "nohup", "taskset", "-c", batch["cpus"], "nice", "-n", str(self.cfg["nice"]),
+                    *self.eval_args(d / "snapshots" / f"{snap_label(m)}.pt", out)]
+            self.spawn(args, d / "evals" / f"{snap_label(m)}.out")
+            self.log(f"{d.name} 探索性 {snap_label(m)} eval 已啟動")
+
+    def finish_text(self, st):
+        vs = self.verdicts(st)
+        txt = "；".join(f"s{v['seed']} ×{fmt(v['ratio'], '.2f')}/{v['dpp']:+.0f}pp 分數{'過' if v['score_ok'] else '不過'}、成本門{'過' if v['cost_ok'] else '不過'}" for v in vs["rows"])
+        loads = "；".join(f"批次{k} 平均 load1 {fmt(b.get('mean_load1'))}／忙碌核 {fmt(b.get('mean_busy_cores'))}" for k, b in st["batches"].items())
+        return f"round2 S 完成：{txt} → {'採用 S' if vs['adopt'] else '在這個 CPU 預算下不採用'}（{vs['n_pass']}/3）；負載註記：{loads}（不跨批比較）"
+
+    def snapshots_finished(self, st):
+        """已取得快照的 eval 需收尾後才能結束監控及發佈。"""
+        finished = True
+        for b in st.get("batches", {}).values():
+            for name, js in b.get("snap", {}).items():
+                for mark in js.get("taken", []):
+                    out = self.runs / name / "evals" / f"{snap_label(mark)}.json"
+                    if load(out):
+                        continue
+                    running = any(str(out) in " ".join(a) for a in self.process_args())
+                    if running or js.get("eval_tries", {}).get(str(mark), 0) < 3:
+                        finished = False
+                    else:
+                        self.alert_once(st, name, f"快照失敗：{snap_label(mark)} eval 已嘗試3次；不影響t180判定")
+        return finished
+
+    def tick(self):
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.state_path.with_suffix(".lock").open("a") as lk:
+            try:
+                fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return load(self.state_path, {})
+            st = json.loads(self.state_path.read_text()) if self.state_path.exists() else {"batches": {}, "pids": {}}
+            if not isinstance(st, dict) or not isinstance(st.get("batches"), dict):
+                raise ValueError("state 格式損壞，停止以免重複開跑")
+            alerts = []
+            w = self.ready(st)
+            for key, batch in self.batches.items():
+                b = st["batches"].get(key)
+                if b is None:
+                    if key == "1":
+                        ok = w["quad_done"] and w["time_ok"] and w["idle_ok"] and not w["busy"]
+                    else:
+                        prev = self.batches[str(int(key) - 1)]
+                        ok = bool(st["batches"].get(str(int(key) - 1), {}).get("done")) and all((self.runs / n / "eval_end").exists() for n in prev["jobs"]) and not self.machine_busy()
+                    if ok and not self.dry_run:
+                        try:
+                            self.launch(batch, st)
+                        except Exception as exc:
+                            text = f"啟動失敗：{type(exc).__name__}（檢查固定 commit、run 目錄與本地 log；不自動重跑已啟動 job）"
+                            self.log(text)
+                            self.alert_once(st, f"批次{key}", text)
+                            st["launch_error"] = text
+                            alerts.append((f"批次{key}", text))
+                    break  # 每個 tick 最多一批；新程序會佔用機器。
+                active = {n: self.job_alive(n) and not (self.runs / n / "train.json").exists() for n in batch["jobs"]}
+                self.sample_load(b, any(active.values()))
+                for name in batch["jobs"]:
+                    if not self.dry_run:
+                        self.snap_tick(b.setdefault("snap", {}).setdefault(name, {}), self.runs / name, active[name], batch)
+                    for text in self.anomalies(self.jobs[name]):
+                        alerts.append((name, text))
+                        self.alert_once(st, name, text)
+                if all(self.metrics(n) for n in batch["jobs"]):
+                    b.setdefault("done", now())
+            if all(st["batches"].get(k, {}).get("done") for k in self.batches) and not self.verdicts(st)["pending"] and self.snapshots_finished(st):
+                if not st.get("done"):
+                    text = st.setdefault("completion_text", self.finish_text(st))
+                    self.milestone(text)
+                    st["done"] = now()
+            output_state = self.state_path.with_name(self.state_path.stem + ".dry_run.json") if self.dry_run else self.state_path
+            save_json(output_state, st)
+            self.write_fragment(st, alerts)
+            if self.publish_enabled:
+                self.publish(st)
+                save_json(self.state_path, st)
+            return st
+
+    def write_fragment(self, st, alerts):
+        R = self.cfg["rules"]
+        L = [f"# 第二輪 S 正式訓練狀態（更新：{now()} 台北）", "", f"事前登記：{self.cfg['prereg']}。",
+             "S = C 加 `--value-skip l1`；每 job 2 threads、nice 10、180 分鐘 active；t180 正式判定，t90／120／150 僅供探索。", ""]
+        if self.dry_run:
+            L.append("**DRY-RUN：只寫本地狀態，禁止 launch／快照／publish／里程碑。**")
+        if not st.get("started"):
+            w = st.get("wait", {})
+            yn = lambda v: "是" if v else "否"
+            L += ["狀態：**等待中**", f"- R quad 已完成（state 有有效 done）：{yn(w.get('quad_done'))}",
+                  f"- 機器仍有 main.py train／eval.py：{yn(w.get('busy')) if w.get('process_scope_ok') else '無法確認（保守視為忙碌）'}",
+                  f"- 能確認全機程序：{yn(w.get('process_scope_ok'))}（隔離程序空間視為忙碌，保持等待）",
+                  f"- 連續兩次空閒（間隔 ≥30秒）：{w.get('idle_count', 0)}/2；滿足：{yn(w.get('idle_ok'))}",
+                  f"- 台北時間 ≥ 2026-10-18 20:30：{yn(w.get('time_ok'))}",
+                  "上述條件全部滿足後，才會開跑批次 1。"]
+        else:
+            L.append("狀態：**" + ("全部完成" if st.get("done") else "進行中") + "**")
+        L += ["", "| 批次 | CPU | 狀態 | 平均 load1 | 平均忙碌核（整機） |", "|---|---|---|---|---|"]
+        job_lines = []
+        for key, batch in self.batches.items():
+            b = st.get("batches", {}).get(key, {})
+            status = "完成" if b.get("done") else "進行中" if b.get("started") else "等待中"
+            L.append(f"| {key} | {batch['cpus']} | {status} | {fmt(b.get('mean_load1'))} | {fmt(b.get('mean_busy_cores'))} |")
+            for name in batch["jobs"]:
+                d = self.runs / name
+                status = "完成" if self.metrics(name) else "eval 中" if (d / "train.json").exists() and self.job_alive(name) else "訓練中" if self.job_alive(name) else "中斷／待判斷" if (d / "meta.json").exists() else "未開跑"
+                job_lines.append(f"- {name}：{status}")
+        L += ["", *job_lines]
+        L += ["", "判定：每 seed mean 比值 ≥1.20、Δ≥1024 ≥+10pp，且 updates_S ≥0.85×updates_C；三個 seed 全過才採用。缺資料不視為通過。",
+              "絕對目標：mean >15,000 且 ≥1024 ≥80%；三種子平均僅供探索。不同批次負載只註記，不跨批比較。", "",
+              "| seed（S 對同時段 C） | C mean／≥1024 | S mean／≥1024 | S/C | Δ≥1024 | 分數門 | 成本保護門（updates S/C） | 綜合判定 | 絕對目標 C／S | C／S updates | C／S env steps | C／S updates/s | 忙碌核 C／S |",
+              "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+        vs = self.verdicts(st)
+        for v in vs["rows"]:
+            if v["pending"]:
+                L.append(f"| {v['seed']} | 待資料 | | | | | | | | | | | |")
+                continue
+            s, c = v["S"], v["C"]
+            b = st.get("batches", {}).get("1" if v["seed"] in (101, 202) else "2", {})
+            yes = lambda x: "過" if x else "不過"
+            L.append(f"| {v['seed']}（S_s{v['seed']}／C_s{v['seed']}-skipctl） | {c['mean']:,.0f}／{c['r1024']:.0%} | {s['mean']:,.0f}／{s['r1024']:.0%} | ×{fmt(v['ratio'], '.2f')} | {v['dpp']:+.1f}pp | {yes(v['score_ok'])} | {yes(v['cost_ok'])}（{fmt(v['cost_ratio'], '.1%')}） | {yes(v['ok'])} | {yes(v['abs_C'])}／{yes(v['abs_S'])} | {fmt(c['updates'], ',')}／{fmt(s['updates'], ',')} | {fmt(c['env_steps'], ',')}／{fmt(s['env_steps'], ',')} | {fmt(c['ups'])}／{fmt(s['ups'])} | {fmt(b.get('mean_busy_cores'))}／{fmt(b.get('mean_busy_cores'))} |")
+        if not vs["pending"]:
+            avg = {arm: {k: sum(v[arm][k] for v in vs["rows"]) / 3 for k in ("mean", "r1024")} for arm in ("C", "S")}
+            L += ["", f"三種子平均（探索性，不作判定）：C {avg['C']['mean']:,.0f}／{avg['C']['r1024']:.1%}；S {avg['S']['mean']:,.0f}／{avg['S']['r1024']:.1%}。",
+                  f"**正式判定：{'採用 S' if vs['adopt'] else '在這個 CPU 預算下不採用'}（{vs['n_pass']}/3 seed 通過）；絕對目標：{'穩健達標' if vs['absolute'] else '尚未穩健達標'}。**"]
+        L += ["", "| job | median | ≥2048 | 實際 replay ratio | eval 分鐘 | 非有限值數 |", "|---|---|---|---|---|---|"]
+        for name in self.jobs:
+            m = self.metrics(name)
+            if m:
+                L.append(f"| {name} | {fmt(m['median'], ',.0f')} | {fmt(m['r2048'], '.1%')} | {fmt(m['rr'], '.3f')} | {fmt(m['eval_min'])} | {fmt(m['nan'], ',')} |")
+        L += ["", "探索性快照（不參與判定；正式為 t180）：", "", "| job | t90 | t120 | t150 |", "|---|---|---|---|"]
+        for name in self.jobs:
+            cells = []
+            for mark in self.cfg["snapshots"]:
+                ev = load(self.runs / name / "evals" / f"{snap_label(mark)}.json")
+                cells.append(f"{ev['mean']:,.0f}／{ev['reach_rates']['1024']:.0%}" if ev else "待資料")
+            L.append(f"| {name} | " + " | ".join(cells) + " |")
+        L += ["", "結果只能歸因到「整套 S 設定在相同 active 時間預算下」；env steps、updates、ε／target 節奏也會隨之改變。",
+              "啟動異常：" + st["launch_error"] if st.get("launch_error") else "",
+              "目前異常：" + ("；".join(f"{n}：{a}" for n, a in alerts) if alerts else "無"), ""]
+        self.status_path.parent.mkdir(parents=True, exist_ok=True)
+        self.status_path.write_text("\n".join(L))
+
+    def publication_sig(self, st):
+        events = {"started": st.get("started"), "done": st.get("done"), "alerts": st.get("alerted", []),
+                  "batches": {k: {x: b.get(x) for x in ("started", "done")} for k, b in st.get("batches", {}).items()}}
+        files = {}
+        for name in self.jobs:
+            d = self.runs / name
+            for f in [d / n for n in ("meta.json", "train.json", "eval.json")] + sorted((d / "evals").glob("*.json")):
+                if f.is_file():
+                    files[str(f.relative_to(self.runs))] = hashlib.sha256(f.read_bytes()).hexdigest()
+        events["files"] = files
+        return hashlib.sha256(json.dumps(events, sort_keys=True).encode()).hexdigest()
+
+    def publish(self, st):
+        if not self.publish_enabled or self.dry_run or not st.get("started"):
+            return False
+        sig = self.publication_sig(st)
+        if st.get("published_sig") == sig and not st.get("publish_pending"):
+            return True
+        st["publish_pending"] = True
+        # 鎖只能放 skip-run；絕不寫 experiments/.publish.lock。
+        with self.state_path.with_suffix(".publish.lock").open("a") as lk:
+            fcntl.flock(lk, fcntl.LOCK_EX)
+            try:
+                git = lambda *a: self.run(["git", "-C", self.repo, *a])
+                gd = git("rev-parse", "--absolute-git-dir")
+                if gd.returncode or (Path(gd.stdout.strip()) / "index.lock").exists():
+                    return False
+                branch = git("branch", "--show-current")
+                if branch.returncode or branch.stdout.strip() != BRANCH:
+                    self.log("發佈延後：結果 worktree 分支不符")
+                    return False
+                dest = self.repo / RESULTS
+                dest.mkdir(parents=True, exist_ok=True)
+                self.write_fragment(st, []) if not self.status_path.exists() else None
+                shutil.copyfile(self.status_path, dest / "S_RESULTS.md")
+                for name in self.jobs:
+                    d = self.runs / name
+                    for f in [d / n for n in ("meta.json", "train.json", "eval.json")] + sorted((d / "evals").glob("*.json")):
+                        if f.exists():
+                            target = dest / "runs" / name / f.relative_to(d)
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copyfile(f, target)
+                if (Path(gd.stdout.strip()) / "index.lock").exists():
+                    return False
+                add = git("add", RESULTS)
+                if add.returncode:
+                    return False
+                # commit -- <path> 不夾帶別人的 staged 檔；只檢查指定目錄。
+                diff = git("diff", "--cached", "--quiet", "--", RESULTS)
+                if diff.returncode not in (0, 1):
+                    return False
+                if diff.returncode == 1:
+                    if git("commit", "-m", "第二輪 S：更新正式訓練結果", "--", RESULTS).returncode:
+                        return False
+                # 即使沒有新 diff 仍要重試上次失敗的 push。不 merge、不 force。
+                rc = git("push", "origin", BRANCH).returncode
+                st["publish_pending"] = rc != 0
+                if rc == 0:
+                    st["published"] = now()
+                    st["published_sig"] = sig
+                self.log("結果發佈成功" if rc == 0 else "push 未成功，下次 tick 重試（不 force、不 merge）")
+                return rc == 0
+            except (OSError, subprocess.SubprocessError):
+                st["publish_pending"] = True
+                self.log("發佈失敗，下次 tick 重試")
+                return False
+
+    def loop(self):
+        if self.dry_run:
+            self.tick()
+            return
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.state_path.with_suffix(".loop.lock").open("a") as lk:
+            try:
+                fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise RuntimeError("同一 state 的 loop 已在執行")
+            while True:
+                st = self.tick()
+                if st.get("done") and (not self.publish_enabled or not st.get("publish_pending", True)):
+                    self.log("全部完成，排程器結束")
+                    return
+                time.sleep(self.cfg.get("interval_s", 30))
+
+
+def main():
+    if len(sys.argv) != 2 or sys.argv[1] not in ("tick", "loop"):
+        raise SystemExit("用法：s_run.py tick|loop；安全預覽：S2_DRY_RUN=1")
+    s = Scheduler()
+    try:
+        result = getattr(s, sys.argv[1])()
+        if result is not None:
+            print(s.status_path.read_text(), end="")
+    except Exception as exc:
+        s.log(f"排程器異常：{type(exc).__name__}；停止此程序，請檢查 state／本地 log")
+        s.milestone(f"round2 S 排程器 異常 — 例外：{type(exc).__name__}；程序停止，請檢查本地 log")
+        raise
+
+
+if __name__ == "__main__":
+    main()

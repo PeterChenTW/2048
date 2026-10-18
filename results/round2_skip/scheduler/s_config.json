@@ -1,0 +1,138 @@
+{
+  "note": "S_PREREG 修訂 1：同時段 C 對照；t180 正式判定；快照僅供探索。",
+  "prereg": "results/round2_skip/S_PREREG.md 修訂 1（2026-10-18 13:36 台北）",
+  "code_dir": "/workspace/rl2048-review/wt-skip-run",
+  "expected_commit": "28a8f8bc54639ea0982742015909b9d36854fd09",
+  "python": "/workspace/rl2048-review/.venv/bin/python",
+  "runs_dir": "/workspace/rl2048-review/skip-run/runs",
+  "repo": "/workspace/rl2048-review/wt-skip",
+  "results_subdir": "results/round2_skip",
+  "branch": "exp/round2-skip",
+  "nice": 10,
+  "threads": 2,
+  "minutes": 180,
+  "snapshots": [
+    90,
+    120,
+    150
+  ],
+  "interval_s": 30,
+  "start_requires": {
+    "quad_state": "/workspace/rl2048-review/experiments/round2/quad_state.json",
+    "not_before": "2026-10-18T20:30:00+08:00",
+    "idle_checks": 2,
+    "idle_interval_s": 30
+  },
+  "common": [
+    "--arch",
+    "onehot_afterstate",
+    "--from-scratch",
+    "--n-step",
+    "1",
+    "--memory-capacity",
+    "6000",
+    "--replay-ratio",
+    "0.45",
+    "--per-max-priority",
+    "tree",
+    "--reward-mode",
+    "log",
+    "--gamma",
+    "0.99",
+    "--eps-schedule",
+    "episode_exp",
+    "--eps-start",
+    "0.15",
+    "--eps-min",
+    "0.001",
+    "--eps-decay",
+    "0.999",
+    "--eps-decay-start-episode",
+    "128",
+    "--restart-frac",
+    "0",
+    "--budget-clock",
+    "active"
+  ],
+  "arm_flags": {
+    "C": [],
+    "S": [
+      "--value-skip",
+      "l1"
+    ]
+  },
+  "batches": [
+    {
+      "id": 1,
+      "cpus": "0-7",
+      "jobs": [
+        "S_s101",
+        "S_s202",
+        "C_s101-skipctl",
+        "C_s202-skipctl"
+      ]
+    },
+    {
+      "id": 2,
+      "cpus": "0-3",
+      "jobs": [
+        "S_s303",
+        "C_s303-skipctl"
+      ]
+    }
+  ],
+  "jobs": [
+    {
+      "name": "S_s101",
+      "arm": "S",
+      "seed": 101,
+      "batch": 1
+    },
+    {
+      "name": "C_s101-skipctl",
+      "arm": "C",
+      "seed": 101,
+      "batch": 1
+    },
+    {
+      "name": "S_s202",
+      "arm": "S",
+      "seed": 202,
+      "batch": 1
+    },
+    {
+      "name": "C_s202-skipctl",
+      "arm": "C",
+      "seed": 202,
+      "batch": 1
+    },
+    {
+      "name": "S_s303",
+      "arm": "S",
+      "seed": 303,
+      "batch": 2
+    },
+    {
+      "name": "C_s303-skipctl",
+      "arm": "C",
+      "seed": 303,
+      "batch": 2
+    }
+  ],
+  "eval": {
+    "policy": "greedy",
+    "games": 100,
+    "seed_start": 1000,
+    "board": "fast",
+    "max_steps": 5000,
+    "quota_min": 30
+  },
+  "rules": {
+    "ratio": 1.2,
+    "pp_1024": 10,
+    "cost_guard": 0.85,
+    "abs_mean": 15000,
+    "abs_r1024": 0.8,
+    "stall_min": 10
+  }
+}
