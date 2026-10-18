@@ -27,6 +27,7 @@ class DQNConfig:
     grad_clip: float = 1.0
     seed: int | None = None
     arch: str = 'legacy'  # legacy, onehot_dueling, onehot_conv2x2, onehot_afterstate
+    value_skip: str = 'none'  # none, l1 (onehot_afterstate only)
     n_step: int = 1
     reward_mode: str = 'log'
     reward_scale: float = 256.0

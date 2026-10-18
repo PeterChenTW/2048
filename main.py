@@ -67,6 +67,8 @@ def parser():
     train.add_argument('--from-scratch', action='store_true')
     train.add_argument('--arch', choices=('legacy', 'onehot_dueling', 'onehot_conv2x2',
                                         'onehot_afterstate'), default='legacy')
+    train.add_argument('--value-skip', choices=('none', 'l1'), default='none',
+                       help='append L1 features to the afterstate V head (default: none)')
     train.add_argument('--n-step', type=positive_int, default=1)
     train.add_argument('--restart-frac', type=fraction, default=0.0,
                        help='fraction of episodes started from own reached boards (default: off)')
@@ -125,7 +127,8 @@ def train(args):
     from rewards import shape_reward
 
     torch.set_num_threads(args.threads)
-    config_args = {'seed': args.seed, 'arch': args.arch, 'n_step': args.n_step,
+    config_args = {'seed': args.seed, 'arch': args.arch, 'value_skip': args.value_skip,
+                   'n_step': args.n_step,
                    'restart_frac': args.restart_frac, 'restart_pool_size': args.restart_pool_size}
     if args.gamma is not None:
         config_args['gamma'] = args.gamma
@@ -164,7 +167,8 @@ def train(args):
         except ValueError as exc:
             if config.arch != 'legacy':
                 raise ValueError(f'--arch {config.arch} requires --from-scratch or '
-                                 '--checkpoint pointing to a v2 checkpoint of the same arch') from exc
+                                 '--checkpoint pointing to a v2 checkpoint of the same arch '
+                                 f'and --value-skip: {exc}') from exc
             raise
         print(f'Loaded checkpoint: {args.checkpoint}', flush=True)
     else:
@@ -355,7 +359,7 @@ def train(args):
         values = [float(s[key]) for s in all_stats if finite(s.get(key))]
         q_ranges[key] = {'min': min(values) if values else None,
                          'max': max(values) if values else None}
-    summary = dict(arch=config.arch, n_step=config.n_step,
+    summary = dict(arch=config.arch, value_skip=config.value_skip, n_step=config.n_step,
                    memory_capacity=config.memory_capacity,
                    per_max_priority=config.per_max_priority,
                    track_replay_age=config.track_replay_age,

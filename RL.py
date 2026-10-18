@@ -122,6 +122,10 @@ class DDQNAgent:
         if self.config.arch not in ('legacy', 'onehot_dueling', 'onehot_conv2x2',
                                     'onehot_afterstate'):
             raise ValueError(f'unknown architecture: {self.config.arch}')
+        if self.config.value_skip not in ('none', 'l1'):
+            raise ValueError(f'unknown value_skip: {self.config.value_skip!r}')
+        if self.config.value_skip != 'none' and self.config.arch != 'onehot_afterstate':
+            raise ValueError("value_skip='l1' requires arch=onehot_afterstate")
         if self.config.arch == 'onehot_afterstate':
             from afterstate_agent import AfterstateAgent
             if not isinstance(self, AfterstateAgent):
@@ -162,8 +166,10 @@ class DDQNAgent:
             'onehot_afterstate': OneHotValueNet,
         }
         network = networks[self.config.arch]
-        self.model = network()
-        self.target_model = network()
+        network_args = ({'value_skip': self.config.value_skip}
+                        if self.config.arch == 'onehot_afterstate' else {})
+        self.model = network(**network_args)
+        self.target_model = network(**network_args)
         self.update_target_model()
         self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.config.lr)
         self.losses = []
@@ -291,6 +297,10 @@ class DDQNAgent:
         if arch != self.config.arch:
             raise ValueError(f'checkpoint architecture {arch!r} cannot load into '
                              f'{self.config.arch!r} agent')
+        checkpoint_skip = payload.get('config', {}).get('value_skip', 'none')
+        if checkpoint_skip != self.config.value_skip:
+            raise ValueError(f'checkpoint value_skip {checkpoint_skip!r} conflicts with '
+                             f'agent/CLI --value-skip {self.config.value_skip!r}')
         state = payload['state_dict'] if 'format' in payload else payload
         self.model.load_state_dict(state, strict=True)
         self.update_target_model()
@@ -319,6 +329,7 @@ def _read_checkpoint(path):
         'onehot_dueling_v1': 'onehot_dueling',
         'onehot_conv2x2_v1': 'onehot_conv2x2',
         'onehot_afterstate_v1': 'onehot_afterstate',
+        'onehot_afterstate_skip_v1': 'onehot_afterstate',
         'legacy': 'legacy',
     }
     architecture = payload.get('architecture')
@@ -327,6 +338,10 @@ def _read_checkpoint(path):
     arch = architectures[architecture]
     if payload.get('config', {}).get('arch', arch) != arch:
         raise ValueError('checkpoint architecture conflicts with its config')
+    value_skip = payload.get('config', {}).get('value_skip', 'none')
+    expected_skip = 'l1' if architecture == 'onehot_afterstate_skip_v1' else 'none'
+    if value_skip != expected_skip:
+        raise ValueError('checkpoint architecture conflicts with its config value_skip')
     return payload, arch
 
 

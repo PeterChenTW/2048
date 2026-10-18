@@ -4,8 +4,27 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from dueling import OneHotDuelingDQN
+from encoding import log2_onehot_torch
+
+
+class _L1SkipDirectionalTrunk(OneHotDuelingDQN):
+    """Directional V trunk with post-ReLU L1 features appended after L2."""
+
+    def forward_features(self, x: torch.Tensor) -> torch.Tensor:
+        if not isinstance(x, torch.Tensor):
+            x = torch.as_tensor(x, dtype=torch.float32)
+        onehot = log2_onehot_torch(x)
+        onehot = onehot.to(device=self.conv_h.weight.device, dtype=self.conv_h.weight.dtype)
+        h = F.relu(self.conv_h(onehot))
+        v = F.relu(self.conv_v(onehot))
+        hh = F.relu(self.conv_hh(h)).flatten(start_dim=1)
+        hv = F.relu(self.conv_hv(h)).flatten(start_dim=1)
+        vh = F.relu(self.conv_vh(v)).flatten(start_dim=1)
+        vv = F.relu(self.conv_vv(v)).flatten(start_dim=1)
+        return torch.cat([hh, hv, vh, vv, h.flatten(1), v.flatten(1)], dim=1)
 
 
 class OneHotValueNet(nn.Module):
@@ -21,12 +40,20 @@ class OneHotValueNet(nn.Module):
 
     architecture: str = "onehot_afterstate_v1"
 
-    def __init__(self, channels: int = 128, hidden: int = 256, trunk: str = "directional") -> None:
+    def __init__(self, channels: int = 128, hidden: int = 256, trunk: str = "directional",
+                 value_skip: str = "none") -> None:
         super().__init__()
+        if value_skip not in ("none", "l1"):
+            raise ValueError(f"unknown value_skip: {value_skip!r}")
+        if value_skip == "l1" and trunk != "directional":
+            raise ValueError("value_skip='l1' requires trunk='directional'")
+        self.value_skip = value_skip
+        if value_skip == "l1":
+            self.architecture = "onehot_afterstate_skip_v1"
         self.channels = channels
         self.hidden = hidden
         self.trunk_name = trunk
-        self.trunk, trunk_features = self._build_trunk(trunk, channels, hidden)
+        self.trunk, trunk_features = self._build_trunk(trunk, channels, hidden, value_skip)
         self.trunk_features = trunk_features
 
         self.head = nn.Sequential(
@@ -39,10 +66,15 @@ class OneHotValueNet(nn.Module):
             self.head[-1].bias.zero_()
 
     @staticmethod
-    def _build_trunk(trunk: str, channels: int, hidden: int) -> tuple[nn.Module, int]:
+    def _build_trunk(trunk: str, channels: int, hidden: int,
+                     value_skip: str = "none") -> tuple[nn.Module, int]:
         if trunk == "directional":
-            net = OneHotDuelingDQN(channels=channels, hidden=hidden)
+            # The none path retains the original modules, initialization order and RNG use.
+            network = OneHotDuelingDQN if value_skip == "none" else _L1SkipDirectionalTrunk
+            net = network(channels=channels, hidden=hidden)
             features = net.head.in_features
+            if value_skip == "l1":
+                features += 24 * channels
             net.head = nn.Identity()  # drop the unused Q head (keeps trunk param names intact)
             return net, features
         if trunk == "conv2x2":
