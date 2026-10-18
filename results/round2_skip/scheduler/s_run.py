@@ -13,6 +13,8 @@ import os
 import shlex
 import shutil
 import subprocess
+import statistics
+import tempfile
 import sys
 import time
 from datetime import datetime
@@ -71,6 +73,13 @@ class Scheduler:
         self.miles_lock = Path(os.environ.get("S2_MILESTONES_LOCK", default_lock))
         self.quad_state = Path(os.environ.get("S2_QUAD_STATE", c["start_requires"]["quad_state"]))
         self.publish_enabled = not self.dry_run and os.environ.get("S2_NO_PUBLISH") != "1" and os.environ.get("S2_PUBLISH", "1") != "0"
+        self.controls = c["controls"]
+        controls_root = os.environ.get("S2_CONTROLS_ROOT")
+        if controls_root:
+            for control in self.controls.values():
+                control["dir"] = str(Path(controls_root) / control["name"])
+                if control.get("load"):
+                    control["load"]["state"] = str(Path(controls_root) / "pair_state.json")
         self.py = c["python"]
         self.jobs = {j["name"]: j for j in c["jobs"]}
         self.batches = {str(b["id"]): b for b in c["batches"]}
@@ -192,6 +201,78 @@ class Scheduler:
                 save_json(self.miles, ms)
         seen.append(key)
 
+    @staticmethod
+    def valid_eval(ev):
+        try:
+            values = [ev["mean"], ev["median"], ev["reach_rates"]["1024"], ev["reach_rates"]["2048"]]
+            return (all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values)
+                    and min(values[:2]) >= 0 and all(0 <= v <= 1 for v in values[2:]))
+        except (KeyError, TypeError):
+            return False
+
+    def control_ready(self, seed):
+        control = self.controls[str(seed)]
+        d = Path(control["dir"])
+        return self.valid_eval(load(d / control["eval"])) and all((d / f).is_file() for f in control["require"])
+
+    def flag_spec(self):
+        spec, waiting = {}, {}
+        for seed, control in self.controls.items():
+            name = f"S_s{seed}"
+            meta = load(Path(control["dir"]) / "meta.json")
+            ref = meta.get("script") if isinstance(meta, dict) else None
+            if not isinstance(ref, str) or not ref.strip():
+                waiting[seed] = dict(ok=False, status="待對照 meta", diff={}, config_diff={})
+                continue
+            # 從實際 script 取 train argv；parser 只吃 train 子命令起的參數。
+            tokens = shlex.split(self.script(self.jobs[name]))
+            start = tokens.index("main.py") + 1
+            end = tokens.index(">", start)
+            spec[name] = dict(s_argv=tokens[start:end], ref_script=ref)
+        return spec, waiting
+
+    @staticmethod
+    def flag_summary(result):
+        parts = []
+        for label in ("diff", "config_diff"):
+            for key, values in (result.get(label) or {}).items():
+                parts.append(f"{label}.{key}={values}")
+        return "；".join(parts) or result.get("error", "檢查未通過")
+
+    def check_flags(self, st, force=False):
+        t = self.now_epoch()
+        cached = st.get("flags", {})
+        if not force and 0 <= t - cached.get("checked_epoch", -1e30) < 600:
+            results = cached["jobs"]
+        else:
+            spec, results = self.flag_spec()
+            if spec:
+                try:
+                    # 暫存規格不落 experiments；dry-run 也會唯讀解析 parser/meta。
+                    with tempfile.TemporaryDirectory(prefix="s_flags_") as temp:
+                        path = Path(temp) / "spec.json"
+                        save_json(path, spec)
+                        proc = self.run([self.py, HERE / "flagcheck.py", self.code, path], timeout=120,
+                                        env=dict(os.environ, OMP_NUM_THREADS="1", MKL_NUM_THREADS="1",
+                                                 OPENBLAS_NUM_THREADS="1", PYTHONDONTWRITEBYTECODE="1"))
+                    if proc.returncode:
+                        raise ValueError("flagcheck 執行失敗")
+                    checked = json.loads(proc.stdout)
+                    for name in spec:
+                        result = checked[name]
+                        if not isinstance(result, dict) or type(result.get("ok")) is not bool:
+                            raise ValueError("flagcheck 結果格式錯誤")
+                        results[str(self.jobs[name]["seed"])] = dict(result, status="一致" if result["ok"] else "不一致")
+                except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+                    for name in spec:
+                        results[str(self.jobs[name]["seed"])] = dict(ok=False, status="不一致", diff={},
+                                                                    config_diff={}, error="flagcheck 執行或結果無效")
+            st["flags"] = dict(checked_epoch=t, jobs=results)
+        for seed, result in results.items():
+            if result["status"] == "不一致":
+                self.alert_once(st, f"S_s{seed}", f"旗標不一致：{seed} {self.flag_summary(result)}")
+        return results
+
     def ready(self, st):
         t = self.now_epoch()
         req = self.cfg["start_requires"]
@@ -206,6 +287,9 @@ class Scheduler:
         w = dict(quad_done=bool((load(self.quad_state, {}) or {}).get("done")), busy=busy,
                  time_ok=t >= datetime.fromisoformat(req["not_before"]).timestamp(),
                  idle_count=idle["count"], idle_ok=idle["count"] >= req["idle_checks"], checked=now())
+        w["control_ready"] = all(self.control_ready(seed) for seed in req["control_ready"])
+        w["flags"] = self.check_flags(st)
+        w["flags_ok"] = all(w["flags"].get(seed, {}).get("ok", False) for seed in self.controls)
         w["process_scope_ok"] = self.process_scope_ok()
         st["wait"] = w
         return w
@@ -217,6 +301,12 @@ class Scheduler:
         commit = commit_result.stdout.strip()
         if commit_result.returncode or commit != self.cfg["expected_commit"]:
             raise RuntimeError("固定程式 commit 不符，禁止開跑")
+        flags = self.check_flags(st, force=True)
+        st.setdefault("wait", {}).update(flags=flags, flags_ok=all(r["ok"] for r in flags.values()))
+        if not all(flags.get(seed, {}).get("ok", False) for seed in self.controls):
+            raise RuntimeError("旗標一致性未通過，禁止開跑")
+        if not all(self.control_ready(seed) for seed in self.cfg["start_requires"]["control_ready"]):
+            raise RuntimeError("對照 t180 尚未完成，禁止開跑")
         # 不覆蓋任何既有 job，也不對中斷的 job 自動重跑。
         if any((self.runs / n).exists() for n in batch["jobs"]):
             raise RuntimeError("批次 run 目錄已存在，禁止自動重跑")
@@ -241,12 +331,12 @@ class Scheduler:
         self.log(f"批次 {batch['id']} 已啟動：{batch['jobs']}")
         st.pop("launch_error", None)
 
-    def metrics(self, name):
-        d = self.runs / name
-        ev, tr = load(d / "eval.json"), load(d / "train.json")
-        if not (ev and tr and (d / "eval_end").exists()):
+    def read_metrics(self, d, eval_path, require):
+        ev, tr = load(d / eval_path), load(d / "train.json")
+        if not (self.valid_eval(ev) and isinstance(tr, dict) and tr
+                and all((d / f).is_file() for f in require)):
             return None
-        # trainer 的 KeyboardInterrupt 可能正常寫出 JSON；它不是 t180 完成資料。
+        # 中斷產生的 JSON 不是完整 t180 資料。
         if tr.get("interrupted") or tr.get("stopped_reason") == "nonfinite_replay":
             return None
         try:
@@ -255,7 +345,8 @@ class Scheduler:
                      episodes=tr.get("episodes"), nan=tr.get("nan_count"), active_s=tr.get("active_s"),
                      ups=tr["updates"] / tr["active_s"] if tr.get("active_s") and tr.get("updates") is not None else None,
                      eval_min=ev.get("elapsed_seconds", 0) / 60)
-            if not all(math.isfinite(m[k]) for k in ("mean", "median", "r1024", "r2048")):
+            # 非有限診斷值不寫入 state，也不能冒充完整結果。
+            if any(v is not None and (not isinstance(v, (int, float)) or not math.isfinite(v)) for v in m.values()):
                 return None
             try:
                 m["eval_min"] = (float((d / "eval_end").read_text()) - float((d / "eval_start").read_text())) / 60
@@ -265,11 +356,40 @@ class Scheduler:
         except (KeyError, TypeError, ZeroDivisionError):
             return None
 
+    def metrics(self, name, st=None):
+        m = self.read_metrics(self.runs / name, "eval.json", ["eval_end"])
+        if m:
+            b = (st or {}).get("batches", {}).get("1", {})
+            m.update(load1=b.get("mean_load1"), busy=b.get("mean_busy_cores"))
+        return m
+
+    def control_metrics(self, seed):
+        control = self.controls[str(seed)]
+        d = Path(control["dir"])
+        m = self.read_metrics(d, control["eval"], control["require"])
+        if m:
+            cfg = control.get("load")
+            state = load(cfg["state"], {}) if cfg else {}
+            pairs = state.get("pairs", {}) if isinstance(state, dict) else {}
+            b = pairs.get(cfg["pair"], {}) if cfg and isinstance(pairs, dict) else {}
+            b = b if isinstance(b, dict) else {}
+            def average(mean, total, count):
+                value = b.get(mean)
+                if value is None:
+                    numerator, denominator = b.get(total), b.get(count)
+                    if (isinstance(numerator, (int, float)) and isinstance(denominator, (int, float))
+                            and denominator > 0):
+                        value = numerator / denominator
+                return value if isinstance(value, (int, float)) and math.isfinite(value) else None
+            m.update(load1=average("mean_load1", "load_sum", "load_n"),
+                     busy=average("mean_busy_cores", "busy_sum", "busy_n"), load_note=control.get("load_note"))
+        return m
+
     def verdicts(self, st):
         rows = []
         R = self.cfg["rules"]
         for seed in (101, 202, 303):
-            s, c = self.metrics(f"S_s{seed}"), self.metrics(f"C_s{seed}-skipctl")
+            s, c = self.metrics(f"S_s{seed}", st), self.control_metrics(seed)
             if not (s and c):
                 rows.append(dict(seed=seed, pending=True))
                 continue
@@ -285,7 +405,13 @@ class Scheduler:
                              abs_S=s["mean"] > R["abs_mean"] and s["r1024"] >= R["abs_r1024"],
                              abs_C=c["mean"] > R["abs_mean"] and c["r1024"] >= R["abs_r1024"]))
         pending = any(r["pending"] for r in rows)
-        return dict(rows=rows, pending=pending, n_pass=sum(r.get("ok", False) for r in rows),
+        paired = [dict(seed=r["seed"], mean_diff=r["S"]["mean"] - r["C"]["mean"], ratio=r["ratio"], dpp=r["dpp"])
+                  for r in rows if not r["pending"]]
+        spread = {}
+        for key in ("mean_diff", "ratio", "dpp"):
+            values = [r[key] for r in paired if r[key] is not None]
+            spread[key] = dict(sd=statistics.stdev(values), min=min(values), max=max(values)) if len(values) == 3 else None
+        return dict(rows=rows, paired=paired, spread=spread, pending=pending, n_pass=sum(r.get("ok", False) for r in rows),
                     adopt=not pending and all(r["ok"] for r in rows),
                     absolute=not pending and all(r["abs_S"] for r in rows))
 
@@ -401,9 +527,18 @@ class Scheduler:
 
     def finish_text(self, st):
         vs = self.verdicts(st)
-        txt = "；".join(f"s{v['seed']} ×{fmt(v['ratio'], '.2f')}/{v['dpp']:+.0f}pp 分數{'過' if v['score_ok'] else '不過'}（診斷 S/C：updates ×{fmt(v['diag']['updates'], '.2f')}、env_steps ×{fmt(v['diag']['env_steps'], '.2f')}、updates/s ×{fmt(v['diag']['ups'], '.2f')}）" for v in vs["rows"])
-        loads = "；".join(f"批次{k} 平均 load1 {fmt(b.get('mean_load1'))}／忙碌核 {fmt(b.get('mean_busy_cores'))}" for k, b in st["batches"].items())
-        return f"round2 S 完成：{txt} → {'採用 S' if vs['adopt'] else '在這個 CPU 預算下不採用'}（{vs['n_pass']}/3）；負載註記：{loads}（不跨批比較）"
+        texts = []
+        for v in vs["rows"]:
+            if v["pending"]:
+                texts.append(f"s{v['seed']} 待資料（不通過）")
+                continue
+            texts.append(f"s{v['seed']} ×{fmt(v['ratio'], '.2f')}/{v['dpp']:+.1f}pp 分數{'過' if v['score_ok'] else '不過'}"
+                         f"（診斷 S/C：updates ×{fmt(v['diag']['updates'], '.2f')}、env_steps ×{fmt(v['diag']['env_steps'], '.2f')}、updates/s ×{fmt(v['diag']['ups'], '.2f')}）")
+        spread = "；".join(f"{k} SD {fmt(v['sd'] if v else None, '.3f')}" for k, v in vs["spread"].items())
+        b = st.get("batches", {}).get("1", {})
+        return (f"round2 S 完成：{'；'.join(texts)} → {'採用 S' if vs['adopt'] else '不採用'}（{vs['n_pass']}/3）；"
+                f"配對差：{spread}；S 平均 load1 {fmt(b.get('mean_load1'))}／忙碌核 {fmt(b.get('mean_busy_cores'))}；"
+                "對照不同時段、負載不同，只並列不校正")
 
     def snapshots_finished(self, st):
         """已取得快照的 eval 需收尾後才能結束監控及發佈。"""
@@ -436,11 +571,8 @@ class Scheduler:
             for key, batch in self.batches.items():
                 b = st["batches"].get(key)
                 if b is None:
-                    if key == "1":
-                        ok = w["quad_done"] and w["time_ok"] and w["idle_ok"] and not w["busy"]
-                    else:
-                        prev = self.batches[str(int(key) - 1)]
-                        ok = bool(st["batches"].get(str(int(key) - 1), {}).get("done")) and all((self.runs / n / "eval_end").exists() for n in prev["jobs"]) and not self.machine_busy()
+                    ok = (w["quad_done"] and w["time_ok"] and w["idle_ok"] and not w["busy"]
+                          and w["control_ready"] and w["flags_ok"])
                     if ok and not self.dry_run:
                         try:
                             self.launch(batch, st)
@@ -475,67 +607,126 @@ class Scheduler:
             return st
 
     def write_fragment(self, st, alerts):
-        R = self.cfg["rules"]
         L = [f"# 第二輪 S 正式訓練狀態（更新：{now()} 台北）", "", f"事前登記：{self.cfg['prereg']}。",
-             "S = C 加 `--value-skip l1`；每 job 2 threads、nice 10、180 分鐘 active；t180 正式判定，t90／120／150 僅供探索。", ""]
+             "只有一批：S_s101、S_s202、S_s303 共用 CPU 0–7；每 job 2 threads、nice 10、180 分鐘 active。",
+             "S = C 加 `--value-skip l1`；對照使用既有同 seed t180 軌跡；t90／120／150 僅供探索。", ""]
         if self.dry_run:
             L.append("**DRY-RUN：只寫本地狀態，禁止 launch／快照／publish／里程碑。**")
+        w = st.get("wait", {})
+        yn = lambda v: "是" if v else "否"
         if not st.get("started"):
-            w = st.get("wait", {})
-            yn = lambda v: "是" if v else "否"
-            L += ["狀態：**等待中**", f"- R quad 已完成（state 有有效 done）：{yn(w.get('quad_done'))}",
+            L += ["狀態：**等待中**", f"- R quad 已完成（只讀 done）：{yn(w.get('quad_done'))}",
                   f"- 機器仍有 main.py train／eval.py：{yn(w.get('busy')) if w.get('process_scope_ok') else '無法確認（保守視為忙碌）'}",
                   f"- 能確認全機程序：{yn(w.get('process_scope_ok'))}（隔離程序空間視為忙碌，保持等待）",
                   f"- 連續兩次空閒（間隔 ≥30秒）：{w.get('idle_count', 0)}/2；滿足：{yn(w.get('idle_ok'))}",
                   f"- 台北時間 ≥ 2026-10-18 20:30：{yn(w.get('time_ok'))}",
-                  "上述條件全部滿足後，才會開跑批次 1。"]
+                  f"- C_s303 t180 eval 已存在（有效 JSON 且 eval_end 存在）：{yn(w.get('control_ready'))}"]
         else:
             L.append("狀態：**" + ("全部完成" if st.get("done") else "進行中") + "**")
-        L += ["", "| 批次 | CPU | 狀態 | 平均 load1 | 平均忙碌核（整機） |", "|---|---|---|---|---|"]
-        job_lines = []
+        flags = w.get("flags", st.get("flags", {}).get("jobs", {}))
+        L += ["- 旗標一致性："]
+        for seed in self.controls:
+            result = flags.get(seed, {})
+            status = result.get("status", "待核對")
+            if status == "不一致":
+                status += "：" + self.flag_summary(result)
+            L.append(f"  - s{seed}：{status}")
+        if not st.get("started"):
+            L.append("上述條件全部滿足且三個 seed 旗標一致，才會開跑批次 1；commit 核對後再次強制檢查旗標。")
+
+        def table(headers, rows):
+            # 同一組欄位生成標題／分隔／資料列，避免缺資料時表格錯位。
+            L.extend(["", "| " + " | ".join(headers) + " |", "|" + "---|" * len(headers)])
+            for row in rows:
+                assert len(row) == len(headers)
+                cells = [str(x).replace("|", "\\|").replace("\n", " ") for x in row]
+                L.append("| " + " | ".join(cells) + " |")
+
+        batch_rows = []
         for key, batch in self.batches.items():
             b = st.get("batches", {}).get(key, {})
             status = "完成" if b.get("done") else "進行中" if b.get("started") else "等待中"
-            L.append(f"| {key} | {batch['cpus']} | {status} | {fmt(b.get('mean_load1'))} | {fmt(b.get('mean_busy_cores'))} |")
-            for name in batch["jobs"]:
-                d = self.runs / name
-                status = "完成" if self.metrics(name) else "eval 中" if (d / "train.json").exists() and self.job_alive(name) else "訓練中" if self.job_alive(name) else "中斷／待判斷" if (d / "meta.json").exists() else "未開跑"
-                job_lines.append(f"- {name}：{status}")
-        L += ["", *job_lines]
-        L += ["", "判定（S_PREREG 修訂 2）：每 seed mean 比值 ≥1.20 且 Δ≥1024 ≥+10pp（等時間分數門）；三個 seed 全過才採用。缺資料不視為通過。S/C 的 updates、env_steps、updates/s 比值為必報診斷，不影響判定。",
-              "絕對目標：mean >15,000 且 ≥1024 ≥80%；三種子平均僅供探索。不同批次負載只註記，不跨批比較。", "",
-              "| seed（S 對同時段 C） | C mean／≥1024 | S mean／≥1024 | S/C | Δ≥1024 | 分數門＝判定 | 診斷 S/C updates | 診斷 S/C env_steps | 診斷 S/C updates/s | 絕對目標 C／S | C／S updates | C／S env steps | C／S updates/s | 忙碌核 C／S |",
-              "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+            batch_rows.append([key, batch["cpus"], status, fmt(b.get("mean_load1")), fmt(b.get("mean_busy_cores"))])
+        table(["批次", "CPU", "狀態", "平均 load1", "平均忙碌核（整機）"], batch_rows)
+        for name in self.jobs:
+            d = self.runs / name
+            alive = self.job_alive(name)
+            status = ("完成" if self.metrics(name) else "eval 中" if (d / "train.json").exists() and alive
+                      else "訓練中" if alive else "中斷／待判斷" if (d / "meta.json").exists() else "未開跑")
+            L.append(f"- {name}：{status}")
+        L += ["", "判定（S_PREREG 修訂 2＋修訂 3）：每 seed mean 比值 ≥1.20 且 Δ≥1024 ≥+10pp（等時間分數門）；三個 seed 全過才採用。缺資料不視為通過。",
+              "S/C 的 updates、env_steps、updates/s 比值為必報診斷，不影響判定。絕對目標另列：mean >15,000 且 ≥1024 ≥80%；三種子平均僅供探索。"]
         vs = self.verdicts(st)
+        verdict_rows, side_rows = [], []
+        yes = lambda x: "過" if x else "不過"
         for v in vs["rows"]:
+            seed = v["seed"]
+            label = self.controls[str(seed)]["name"] + " t180"
             if v["pending"]:
-                L.append(f"| {v['seed']} | 待資料 | | | | | | | | | | | | |")
-                continue
-            s, c = v["S"], v["C"]
-            b = st.get("batches", {}).get("1" if v["seed"] in (101, 202) else "2", {})
-            yes = lambda x: "過" if x else "不過"
-            L.append(f"| {v['seed']}（S_s{v['seed']}／C_s{v['seed']}-skipctl） | {c['mean']:,.0f}／{c['r1024']:.0%} | {s['mean']:,.0f}／{s['r1024']:.0%} | ×{fmt(v['ratio'], '.2f')} | {v['dpp']:+.1f}pp | {yes(v['ok'])} | ×{fmt(v['diag']['updates'], '.3f')} | ×{fmt(v['diag']['env_steps'], '.3f')} | ×{fmt(v['diag']['ups'], '.3f')} | {yes(v['abs_C'])}／{yes(v['abs_S'])} | {fmt(c['updates'], ',')}／{fmt(s['updates'], ',')} | {fmt(c['env_steps'], ',')}／{fmt(s['env_steps'], ',')} | {fmt(c['ups'])}／{fmt(s['ups'])} | {fmt(b.get('mean_busy_cores'))}／{fmt(b.get('mean_busy_cores'))} |")
+                verdict_rows.append([seed, label, "待資料", "待資料", "待資料", "待資料", "不通過（待資料）",
+                                     "待資料", "待資料", "待資料", "待資料"])
+            else:
+                s, c = v["S"], v["C"]
+                verdict_rows.append([seed, label, f"{c['mean']:,.0f}／{c['r1024']:.0%}", f"{s['mean']:,.0f}／{s['r1024']:.0%}",
+                                     "×" + fmt(v["ratio"], ".2f"), f"{v['dpp']:+.1f}pp", yes(v["ok"]),
+                                     "×" + fmt(v["diag"]["updates"], ".3f"), "×" + fmt(v["diag"]["env_steps"], ".3f"),
+                                     "×" + fmt(v["diag"]["ups"], ".3f"), yes(v["abs_C"]) + "／" + yes(v["abs_S"])])
+            for name, m in ((f"S_s{seed}", self.metrics(f"S_s{seed}", st)), (label, self.control_metrics(seed))):
+                if m:
+                    note = m.get("load_note")
+                    side_rows.append([seed, name, note or fmt(m["load1"]), note or fmt(m["busy"]),
+                                      fmt(m["updates"], ","), fmt(m["env_steps"], ","), fmt(m["ups"]),
+                                      fmt(m["episodes"], ","), fmt(m["active_s"])])
+                else:
+                    note = self.controls[str(seed)].get("load_note") if name == label else None
+                    side_rows.append([seed, name, note or "待資料", note or "待資料", *(["待資料"] * 5)])
+        table(["seed", "對照（預定終點）", "C mean／≥1024", "S mean／≥1024", "S/C", "Δ≥1024", "分數門＝判定",
+               "診斷 S/C updates", "診斷 S/C env_steps", "診斷 S/C updates/s", "絕對目標 C／S"], verdict_rows)
+        L += ["", "S 與對照並列："]
+        table(["seed", "job", "load1", "忙碌核", "updates", "env_steps", "updates/s", "episodes", "active_s"], side_rows)
+        L += ["", "每 seed 配對差（S−C）："]
+        paired = {v["seed"]: v for v in vs["paired"]}
+        table(["seed", "mean 差（S−C）", "mean 比值（S/C）", "≥1024 差（pp）"],
+              [[seed, fmt(paired.get(seed, {}).get("mean_diff"), "+.1f"),
+                fmt(paired.get(seed, {}).get("ratio"), ".3f"), fmt(paired.get(seed, {}).get("dpp"), "+.1f")]
+               for seed in (101, 202, 303)])
+        table(["跨 seed 統計", "樣本 SD（n−1）", "min", "max"],
+              [[k, *[fmt(v[x] if v else None, ".3f") for x in ("sd", "min", "max")]] for k, v in vs["spread"].items()])
+        L += ["", "3 個 seed＝3 條確定性軌跡（n=3），seed 間變異是唯一的變異估計；沒有 seed 內重複。跨 seed SD／範圍只在三個值都有時列出。"]
         if not vs["pending"]:
             avg = {arm: {k: sum(v[arm][k] for v in vs["rows"]) / 3 for k in ("mean", "r1024")} for arm in ("C", "S")}
             L += ["", f"三種子平均（探索性，不作判定）：C {avg['C']['mean']:,.0f}／{avg['C']['r1024']:.1%}；S {avg['S']['mean']:,.0f}／{avg['S']['r1024']:.1%}。",
-                  f"**正式判定：{'採用 S' if vs['adopt'] else '在這個 CPU 預算下不採用'}（{vs['n_pass']}/3 seed 通過）；絕對目標：{'穩健達標' if vs['absolute'] else '尚未穩健達標'}。**"]
-        L += ["", "| job | median | ≥2048 | 實際 replay ratio | eval 分鐘 | 非有限值數 |", "|---|---|---|---|---|---|"]
-        for name in self.jobs:
-            m = self.metrics(name)
-            if m:
-                L.append(f"| {name} | {fmt(m['median'], ',.0f')} | {fmt(m['r2048'], '.1%')} | {fmt(m['rr'], '.3f')} | {fmt(m['eval_min'])} | {fmt(m['nan'], ',')} |")
-        L += ["", "探索性快照（不參與判定；正式為 t180）：", "", "| job | t90 | t120 | t150 |", "|---|---|---|---|"]
+                  f"**正式判定：{'採用 S' if vs['adopt'] else '不採用'}（{vs['n_pass']}/3 seed 通過）；絕對目標：{'穩健達標' if vs['absolute'] else '尚未穩健達標'}。**"]
+        other = []
+        for seed in self.controls:
+            for name, m in ((f"S_s{seed}", self.metrics(f"S_s{seed}", st)),
+                            (self.controls[seed]["name"], self.control_metrics(seed))):
+                if m:
+                    other.append([name, fmt(m["median"], ",.0f"), fmt(m["r2048"], ".1%"), fmt(m["rr"], ".3f"), fmt(m["eval_min"]), fmt(m["nan"], ",")])
+        table(["job", "median", "≥2048", "實際 replay ratio", "eval 分鐘", "非有限值數"], other)
+        L += ["", "探索性快照（只列 S，不參與判定；正式為 t180）："]
+        snapshots = []
         for name in self.jobs:
             cells = []
             for mark in self.cfg["snapshots"]:
                 ev = load(self.runs / name / "evals" / f"{snap_label(mark)}.json")
-                cells.append(f"{ev['mean']:,.0f}／{ev['reach_rates']['1024']:.0%}" if ev else "待資料")
-            L.append(f"| {name} | " + " | ".join(cells) + " |")
-        L += ["", "結果只能歸因到「整套 S 設定在相同 active 時間預算下」；env steps、updates、ε／target 節奏也會隨之改變。",
+                cells.append(f"{ev['mean']:,.0f}／{ev['reach_rates']['1024']:.0%}" if self.valid_eval(ev) else "待資料")
+            snapshots.append([name, *cells])
+        table(["job", *[f"t{m}" for m in self.cfg["snapshots"]]], snapshots)
+        L += ["", "結果只能歸因到「整套 S 設定在 180 分鐘 active 預算下（含負載條件）」；env steps、updates、ε／target 節奏也會隨之改變。",
+              "對照不同時段、負載不同，只並列不校正。",
               "啟動異常：" + st["launch_error"] if st.get("launch_error") else "",
               "目前異常：" + ("；".join(f"{n}：{a}" for n, a in alerts) if alerts else "無"), ""]
         self.status_path.parent.mkdir(parents=True, exist_ok=True)
         self.status_path.write_text("\n".join(L))
+
+    def control_files(self):
+        for control in self.controls.values():
+            d = Path(control["dir"])
+            for relative in (control["eval"], "train.json", "meta.json"):
+                source = d / relative
+                if source.is_file():
+                    yield source, Path("controls") / control["name"] / relative
 
     def publication_sig(self, st):
         events = {"started": st.get("started"), "done": st.get("done"), "alerts": st.get("alerted", []),
@@ -546,6 +737,8 @@ class Scheduler:
             for f in [d / n for n in ("meta.json", "train.json", "eval.json")] + sorted((d / "evals").glob("*.json")):
                 if f.is_file():
                     files[str(f.relative_to(self.runs))] = hashlib.sha256(f.read_bytes()).hexdigest()
+        for source, relative in self.control_files():
+            files[str(relative)] = hashlib.sha256(source.read_bytes()).hexdigest()
         events["files"] = files
         return hashlib.sha256(json.dumps(events, sort_keys=True).encode()).hexdigest()
 
@@ -579,6 +772,10 @@ class Scheduler:
                             target = dest / "runs" / name / f.relative_to(d)
                             target.parent.mkdir(parents=True, exist_ok=True)
                             shutil.copyfile(f, target)
+                for source, relative in self.control_files():
+                    target = dest / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(source, target)
                 if (Path(gd.stdout.strip()) / "index.lock").exists():
                     return False
                 add = git("add", RESULTS)

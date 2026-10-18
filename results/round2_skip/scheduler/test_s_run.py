@@ -1,9 +1,10 @@
 """S 排程器獨立測試。
 
-路徑全部落在 tmp_path。subprocess.Popen 與 subprocess.run 都被替換，
+輸出路徑全部落在 tmp_path。Popen 與 git 都被替換；旗標整合測試只唯讀執行固定 parser，
 不會啟動訓練、eval，也不會對真實 git 發佈。
 """
 import json
+import math
 import shlex
 import sys
 from datetime import datetime
@@ -13,6 +14,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import s_run  # noqa: E402
+
+REAL_RUN = s_run.subprocess.run
+REAL_POPEN = s_run.subprocess.Popen
 
 CONFIG = Path("/workspace/rl2048-review/skip-run/s_config.json")
 NOT_BEFORE = datetime.fromisoformat("2026-10-18T20:30:00+08:00").timestamp()
@@ -55,17 +59,19 @@ class GitBox:
         self.push_code = 0
         self.diff_seq = None
         self.push_seq = None
+        self.flag_diff = False
 
     def reset(self, gitdir):
         self.calls = []
         self.popen_calls = []
-        self.head = "6c395113c6685959b0d9f438a7a9f5210fd6597c"
+        self.head = "c0dc1c3ce4200d4316d006aacb66cfb1e1256f00"
         self.branch = BRANCH
         self.gitdir = gitdir
         self.diff_code = 1
         self.push_code = 0
         self.diff_seq = None
         self.push_seq = None
+        self.flag_diff = False
 
 
 GIT = GitBox()
@@ -98,6 +104,12 @@ def block_real_subprocesses(monkeypatch, tmp_path):
                 code = GIT.push_seq.pop(0) if GIT.push_seq else GIT.push_code
             elif rest[:1] in ("add", "commit"):
                 code = 0
+        elif len(cmd) > 1 and Path(cmd[1]).name == "flagcheck.py":
+            spec = json.loads(Path(cmd[-1]).read_text())
+            assert kwargs["env"]["OMP_NUM_THREADS"] == "1"
+            stdout = json.dumps({name: dict(ok=not GIT.flag_diff,
+                                           diff={"gamma": [0.99, 0.98]} if GIT.flag_diff else {},
+                                           config_diff={"gamma": [0.99, 0.98]} if GIT.flag_diff else {}) for name in spec})
         elif any("torch.load" in a for a in cmd):
             code = 0
         return s_run.subprocess.CompletedProcess(argv, code, stdout=stdout, stderr="")
@@ -142,6 +154,7 @@ def make_scheduler(tmp_path, monkeypatch, *, dry_run=False, publish=False, quad=
     else:
         quad_path.write_text(quad)
     env = {
+        "S2_CONTROLS_ROOT": str(tmp_path / "controls"),
         "S2_CONFIG": str(CONFIG),
         "S2_STATE": str(tmp_path / "s_state.json"),
         "S2_RUNS": str(runs),
@@ -175,6 +188,10 @@ def make_scheduler(tmp_path, monkeypatch, *, dry_run=False, publish=False, quad=
     assert sched.quad_state == quad_path
     assert sched.dry_run is dry_run
     assert str(tmp_path) in str(sched.miles_lock)
+    for seed, control in sched.controls.items():
+        plant(sched, control["name"], mean=10000, r1024=0.5, updates=1000)
+        script = sched.script(sched.jobs[f"S_s{seed}"]).replace("--value-skip l1 ", "")
+        (Path(control["dir"]) / "meta.json").write_text(json.dumps({"script": script}))
     return sched
 
 
@@ -278,8 +295,11 @@ def assert_launch(call, sched, job, cpus):
 
 
 def plant(sched, name, *, mean, r1024, updates, write_eval=True, write_train=True, write_end=True, extra_train=None, drop=()):
-    dest = sched.runs / name
+    control = next((c for c in sched.controls.values() if c["name"] == name), None)
+    dest = Path(control["dir"]) if control else sched.runs / name
+    eval_path = dest / control["eval"] if control else dest / "eval.json"
     dest.mkdir(parents=True, exist_ok=True)
+    eval_path.parent.mkdir(parents=True, exist_ok=True)
     if write_eval:
         payload = {
             "mean": mean,
@@ -294,7 +314,7 @@ def plant(sched, name, *, mean, r1024, updates, write_eval=True, write_train=Tru
                 del payload["reach_rates"]["1024"]
             else:
                 payload.pop(key, None)
-        (dest / "eval.json").write_text(json.dumps(payload))
+        eval_path.write_text(json.dumps(payload))
     if write_train:
         train = {
             "updates": updates,
@@ -316,7 +336,7 @@ def plant(sched, name, *, mean, r1024, updates, write_eval=True, write_train=Tru
 
 def plant_seed(sched, seed, *, s_mean, c_mean, s_r, c_r, s_up, c_up, **kwargs):
     plant(sched, f"S_s{seed}", mean=s_mean, r1024=s_r, updates=s_up, **kwargs)
-    plant(sched, f"C_s{seed}-skipctl", mean=c_mean, r1024=c_r, updates=c_up, **kwargs)
+    plant(sched, sched.controls[str(seed)]["name"], mean=c_mean, r1024=c_r, updates=c_up, **kwargs)
 
 
 def row_by_seed(result, seed):
@@ -404,82 +424,29 @@ def test_兩次空閒間隔不足30秒不開跑(tmp_path, monkeypatch):
     assert_not_launched(sched, reset)
 
 
-def test_條件滿足後批次1四個命令逐一對照(tmp_path, monkeypatch):
+def test_條件滿足後單批三個S命令逐一對照(tmp_path, monkeypatch):
     sched = make_scheduler(tmp_path, monkeypatch)
     assert sched.cfg["common"] == COMMON
-    assert sched.cfg["arm_flags"]["S"] == ["--value-skip", "l1"]
-    assert sched.cfg["arm_flags"]["C"] == []
-    assert sched.cfg["nice"] == 10
-    assert sched.cfg["threads"] == 2
-    assert sched.cfg["minutes"] == 180
+    assert sched.cfg["arm_flags"] == {"S": ["--value-skip", "l1"], "C": []}
+    assert list(sched.batches) == ["1"]
+    assert list(sched.jobs) == ["S_s101", "S_s202", "S_s303"]
     early = tick_at(sched, NOT_BEFORE)
-    assert early["wait"]["time_ok"] is True
-    assert early["wait"]["idle_count"] == 1
     assert_not_launched(sched, early)
     state = tick_at(sched, NOT_BEFORE + 30)
-    assert state["wait"]["idle_ok"] is True
-    names = ["S_s101", "S_s202", "C_s101-skipctl", "C_s202-skipctl"]
+    assert state["wait"]["idle_ok"] and state["wait"]["control_ready"] and state["wait"]["flags_ok"]
+    names = ["S_s101", "S_s202", "S_s303"]
     assert list(state["pids"]) == names
     assert list(state["batches"]["1"]["pids"]) == names
-    assert len(GIT.popen_calls) == 4
-    for call, name in zip(GIT.popen_calls, names):
+    assert len(GIT.popen_calls) == 3
+    for call, name, seed in zip(GIT.popen_calls, names, (101, 202, 303)):
         job = sched.jobs[name]
-        assert job["batch"] == 1
+        assert job["batch"] == 1 and job["seed"] == seed and job["arm"] == "S"
         assert_launch(call, sched, job, "0-7")
-    scripts = [call["args"][-1] for call in GIT.popen_calls]
-    assert scripts[0].count("--value-skip l1") == 1
-    assert scripts[1].count("--value-skip l1") == 1
-    assert "value-skip" not in scripts[2]
-    assert "value-skip" not in scripts[3]
-    assert "--seed 101" in scripts[0] and "--seed 101" in scripts[2]
-    assert "--seed 202" in scripts[1] and "--seed 202" in scripts[3]
-    # 批次 1 開跑後，同一個 tick 不再啟動批次 2。
-    assert "2" not in state["batches"]
-    assert not (sched.runs / "S_s303").exists()
-
-
-def _prepare_batch1(sched, *, done, ends):
-    names = ["S_s101", "S_s202", "C_s101-skipctl", "C_s202-skipctl"]
-    batch = {"started": "2026-10-19 00:00:00", "pids": {}, "load_sum": 0, "load_n": 0, "busy_sum": 0, "busy_n": 0}
-    if done:
-        batch["done"] = "2026-10-19 00:30:00"
-    state = {"batches": {"1": batch}, "pids": {}, "started": "2026-10-19 00:00:00"}
-    sched.state_path.write_text(json.dumps(state))
-    for index, name in enumerate(names):
-        dest = sched.runs / name
-        dest.mkdir(parents=True)
-        if index < ends:
-            (dest / "eval_end").write_text("1\n")
-
-
-def test_批次2在四個eval完成且機器空閒時用cpu0到3開跑(tmp_path, monkeypatch):
-    sched = make_scheduler(tmp_path, monkeypatch)
-    _prepare_batch1(sched, done=True, ends=4)
-    # 批次 2 不以 20:30 或連續兩次空閒為門檻。
-    state = tick_at(sched, NOT_BEFORE - 10_000)
-    assert state["wait"]["time_ok"] is False
-    names = ["S_s303", "C_s303-skipctl"]
-    assert list(state["batches"]["2"]["pids"]) == names
-    assert len(GIT.popen_calls) == 2
-    for call, name in zip(GIT.popen_calls, names):
-        job = sched.jobs[name]
-        assert job["seed"] == 303
-        assert job["batch"] == 2
-        assert_launch(call, sched, job, "0-3")
-    assert "--value-skip l1" in GIT.popen_calls[0]["args"][-1]
-    assert "value-skip" not in GIT.popen_calls[1]["args"][-1]
-
-
-@pytest.mark.parametrize("done,ends,busy", [(False, 4, False), (True, 3, False), (True, 4, True)])
-def test_批次2條件不足不開跑(tmp_path, monkeypatch, done, ends, busy):
-    sched = make_scheduler(tmp_path, monkeypatch)
-    _prepare_batch1(sched, done=done, ends=ends)
-    sched._busy = busy
-    state = tick_at(sched, NOT_BEFORE + 100)
-    assert "2" not in state["batches"]
-    assert GIT.popen_calls == []
-    assert not (sched.runs / "S_s303").exists()
-    assert not (sched.runs / "C_s303-skipctl").exists()
+    assert list(state["batches"]) == ["1"]
+    # 就算有 C 的旗標定義，也不產生任何 C job；旗標檢查以 S 實際 train argv 為準。
+    c_job = dict(name="C_test", arm="C", seed=101, batch=1)
+    assert "--value-skip" not in split_script(sched.script(c_job))[1]
+    assert len(flag_calls()) == 2  # ready 與 commit 核對後強制重算。
 
 
 def test_判定門檻剛好達到才採用(tmp_path, monkeypatch):
@@ -509,7 +476,7 @@ def test_修訂2_成本比值只診斷不影響判定(tmp_path, monkeypatch):
     # updates 只有 C 的 30%、env_steps 一半：分數門過就採用。
     for seed in (101, 202, 303):
         plant(sched, f"S_s{seed}", mean=13000, r1024=0.7, updates=300, extra_train={"env_steps": 2500})
-        plant(sched, f"C_s{seed}-skipctl", mean=10000, r1024=0.5, updates=1000)
+        plant(sched, sched.controls[str(seed)]["name"], mean=10000, r1024=0.5, updates=1000)
     result = sched.verdicts({})
     assert result["adopt"] is True and result["n_pass"] == 3
     for row in result["rows"]:
@@ -519,6 +486,7 @@ def test_修訂2_成本比值只診斷不影響判定(tmp_path, monkeypatch):
     text = sched.finish_text({"batches": {}})
     assert "成本門" not in text and "updates ×0.30" in text and "env_steps ×0.50" in text and "updates/s ×0.30" in text
     assert "採用 S（3/3）" in text
+    assert "配對差" in text and "mean_diff SD" in text
     # 比值很高也救不了分數門不過。
     for seed in (101, 202, 303):
         plant(sched, f"S_s{seed}", mean=11999, r1024=0.7, updates=5000)
@@ -531,7 +499,7 @@ def test_修訂2_狀態表輸出三個診斷比值(tmp_path, monkeypatch):
     sched = make_scheduler(tmp_path, monkeypatch)
     for seed in (101, 202, 303):
         plant(sched, f"S_s{seed}", mean=13000, r1024=0.7, updates=600, extra_train={"env_steps": 4000})
-        plant(sched, f"C_s{seed}-skipctl", mean=10000, r1024=0.5, updates=1000)
+        plant(sched, sched.controls[str(seed)]["name"], mean=10000, r1024=0.5, updates=1000)
     sched.write_fragment({"started": "x", "batches": {}}, [])
     md = sched.status_path.read_text()
     assert "成本保護門" not in md and "0.85" not in md
@@ -570,9 +538,9 @@ def test_判定缺資料或無法計算不算通過(tmp_path, monkeypatch):
     sched = make_scheduler(tmp_path, monkeypatch)
     plant_seed(sched, 101, s_mean=20000, c_mean=10000, s_r=0.9, c_r=0.5, s_up=1000, c_up=1000, write_end=False)
     plant(sched, "S_s202", mean=20000, r1024=0.9, updates=1000, write_train=False)
-    plant(sched, "C_s202-skipctl", mean=10000, r1024=0.5, updates=1000)
+    plant(sched, "E1-AS-LONG_s202", mean=10000, r1024=0.5, updates=1000)
     plant(sched, "S_s303", mean=20000, r1024=0.9, updates=1000, write_eval=False)
-    plant(sched, "C_s303-skipctl", mean=10000, r1024=0.5, updates=1000)
+    plant(sched, "C_s303", mean=10000, r1024=0.5, updates=1000)
     missing = sched.verdicts({})
     assert all(row["pending"] is True for row in missing["rows"])
     assert missing["pending"] is True
@@ -586,10 +554,10 @@ def test_判定缺資料或無法計算不算通過(tmp_path, monkeypatch):
     plant(sched, "S_s101", mean=12000, r1024=0.6, updates=850, drop=("updates",))
     # C 的 mean 為 0，比值無法計算 → 不通過。
     plant(sched, "S_s202", mean=12000, r1024=0.6, updates=850)
-    plant(sched, "C_s202-skipctl", mean=0, r1024=0.5, updates=1000)
+    plant(sched, "E1-AS-LONG_s202", mean=0, r1024=0.5, updates=1000)
     # C 的 updates 為 0：診斷比值為 None，分數門照常判定。
     plant(sched, "S_s303", mean=12000, r1024=0.6, updates=850)
-    plant(sched, "C_s303-skipctl", mean=10000, r1024=0.5, updates=0)
+    plant(sched, "C_s303", mean=10000, r1024=0.5, updates=0)
     partial = sched.verdicts({})
     assert partial["pending"] is False
     no_updates = row_by_seed(partial, 101)
@@ -635,14 +603,14 @@ def test_同job同異常種類只告警一次(tmp_path, monkeypatch):
     sched.alert_once(state, "S_s101", "卡住：train.csv 40 分鐘沒更新")
     sched.alert_once(state, "S_s101", "NaN／例外：episodes ['3']；train 非有限值 1")
     sched.alert_once(state, "S_s101", "NaN／例外：episodes ['3', '9']；train 非有限值 4")
-    sched.alert_once(state, "C_s101-skipctl", "卡住：train.csv 15 分鐘沒更新")
+    sched.alert_once(state, "S_s202", "卡住：train.csv 15 分鐘沒更新")
     saved = json.loads(sched.miles.read_text())
     assert [item["text"] for item in saved] == [
         "round2 S S_s101 異常 — 卡住：train.csv 12 分鐘沒更新",
         "round2 S S_s101 異常 — NaN／例外：episodes ['3']；train 非有限值 1",
-        "round2 S C_s101-skipctl 異常 — 卡住：train.csv 15 分鐘沒更新",
+        "round2 S S_s202 異常 — 卡住：train.csv 15 分鐘沒更新",
     ]
-    assert state["alerted"] == ["S_s101|卡住", "S_s101|NaN／例外", "C_s101-skipctl|卡住"]
+    assert state["alerted"] == ["S_s101|卡住", "S_s101|NaN／例外", "S_s202|卡住"]
     # state 遺失後仍看里程碑前綴，數字再變也不再寫一筆。
     fresh = {}
     sched.alert_once(fresh, "S_s101", "卡住：train.csv 99 分鐘沒更新")
@@ -770,7 +738,7 @@ def test_dry_run不launch不publish不寫里程碑(tmp_path, monkeypatch):
 def test_快照複製並沿用該批次cpus與nice(tmp_path, monkeypatch):
     sched = make_scheduler(tmp_path, monkeypatch)
     payload = b"checkpoint-bytes"
-    plan = [("S_s101", "0-7", 150), ("C_s303-skipctl", "0-3", 90)]
+    plan = [("S_s101", "0-7", 150), ("S_s303", "0-7", 90)]
     for name, cpus, minutes in plan:
         dest = sched.runs / name
         dest.mkdir(parents=True)
@@ -790,7 +758,7 @@ def test_快照複製並沿用該批次cpus與nice(tmp_path, monkeypatch):
         ("S_s101", "0-7", 90),
         ("S_s101", "0-7", 120),
         ("S_s101", "0-7", 150),
-        ("C_s303-skipctl", "0-3", 90),
+        ("S_s303", "0-7", 90),
     ]
     for args, call, (name, cpus, mark) in zip(torch_cmds, popen, expected):
         dest = sched.runs / name
@@ -821,3 +789,240 @@ def expected_eval_snapshot(sched, checkpoint, output):
         "--max-steps", "5000",
         "--json", str(output),
     ]
+
+
+def flag_calls():
+    return [a for a in GIT.calls if any(Path(part).name == "flagcheck.py" for part in a)]
+
+
+@pytest.mark.parametrize("missing", ["eval.json", "eval_end", "invalid", "nonfinite", "partial"])
+def test_C303對照未就緒不開跑(tmp_path, monkeypatch, missing):
+    sched = make_scheduler(tmp_path, monkeypatch)
+    d = Path(sched.controls["303"]["dir"])
+    if missing in ("eval.json", "eval_end"):
+        (d / missing).unlink()
+    elif missing == "invalid":
+        (d / "eval.json").write_text("{broken")
+    else:
+        (d / "eval.json").write_text('{"mean": NaN}' if missing == "nonfinite" else '{"mean": 1000}')
+    tick_at(sched, NOT_BEFORE)
+    state = tick_at(sched, NOT_BEFORE + 30)
+    assert state["wait"]["control_ready"] is False
+    assert state["wait"]["flags_ok"] is True
+    assert_not_launched(sched, state)
+
+
+def test_旗標不一致不開跑且只告警一次(tmp_path, monkeypatch):
+    sched = make_scheduler(tmp_path, monkeypatch)
+    GIT.flag_diff = True
+    tick_at(sched, NOT_BEFORE)
+    state = tick_at(sched, NOT_BEFORE + 30)
+    assert state["wait"]["flags_ok"] is False
+    assert_not_launched(sched, state)
+    messages = json.loads(sched.miles.read_text())
+    assert len(messages) == 3
+    assert all("旗標不一致：" in m["text"] and "gamma" in m["text"] for m in messages)
+    assert all(r["status"] == "不一致" for r in state["wait"]["flags"].values())
+    assert "不一致：diff.gamma" in sched.status_path.read_text()
+
+
+def test_對照meta缺少不開跑(tmp_path, monkeypatch):
+    sched = make_scheduler(tmp_path, monkeypatch)
+    (Path(sched.controls["303"]["dir"]) / "meta.json").unlink()
+    tick_at(sched, NOT_BEFORE)
+    state = tick_at(sched, NOT_BEFORE + 30)
+    assert state["wait"]["control_ready"] is True
+    assert state["wait"]["flags_ok"] is False
+    assert state["wait"]["flags"]["303"]["status"] == "待對照 meta"
+    assert_not_launched(sched, state)
+    assert "s303：待對照 meta" in sched.status_path.read_text()
+    assert not sched.miles.exists()
+
+
+def test_旗標快取600秒且開跑前強制重算攔截(tmp_path, monkeypatch):
+    sched = make_scheduler(tmp_path, monkeypatch)
+    first = tick_at(sched, NOT_BEFORE)
+    assert first["wait"]["flags_ok"] is True and len(flag_calls()) == 1
+    # 快取仍為一致，但 commit 核對後必須真的重查。
+    GIT.flag_diff = True
+    second = tick_at(sched, NOT_BEFORE + 30)
+    assert len(flag_calls()) == 2
+    assert second["wait"]["flags_ok"] is False
+    assert "啟動失敗" in second["launch_error"]
+    assert_not_launched(sched, second)
+    assert any("啟動失敗" in m["text"] for m in json.loads(sched.miles.read_text()))
+    sched.now_epoch = lambda: NOT_BEFORE + 629
+    assert sched.check_flags(second)["101"]["ok"] is False
+    assert len(flag_calls()) == 2
+    GIT.flag_diff = False
+    sched.now_epoch = lambda: NOT_BEFORE + 630
+    assert all(r["ok"] for r in sched.check_flags(second).values())
+    assert len(flag_calls()) == 3
+    # 指令依序為初次旗標、commit、強制旗標；管理程序都 nice 19。
+    first_three = GIT.calls[:3]
+    assert Path(first_three[0][4]).name == "flagcheck.py"
+    assert first_three[1][3:5] == ["git", "-C"]
+    assert Path(first_three[2][4]).name == "flagcheck.py"
+    assert all(a[:3] == ["nice", "-n", "19"] for a in GIT.calls)
+
+
+@pytest.mark.parametrize("gamma,ok", [(None, True), ("0.98", False)])
+def test_flagcheck真實parser核對(tmp_path, monkeypatch, gamma, ok):
+    sched = make_scheduler(tmp_path, monkeypatch, dry_run=True)
+    sched.code = Path("/workspace/rl2048-review/wt-skip-run")
+    for seed, c in sched.controls.items():
+        argv = expected_train(sched, sched.jobs[f"S_s{seed}"])
+        index = argv.index("--value-skip")
+        del argv[index:index + 2]
+        # 只排除的四個欄位允許不同，其餘必須真正由 parser 比對。
+        argv[argv.index("--minutes") + 1] = "999"
+        argv[argv.index("--save-every") + 1] = "17"
+        argv[argv.index("--save-as") + 1] = "/tmp/另一份 checkpoint"
+        argv[argv.index("--log") + 1] = "/tmp/另一份 log"
+        if gamma:
+            argv += ["--gamma", gamma]
+        script = shlex.join(argv) + " > /tmp/fake-train.out 2>&1 && date"
+        (Path(c["dir"]) / "meta.json").write_text(json.dumps({"script": script}))
+    monkeypatch.setattr(s_run.subprocess, "run", REAL_RUN)
+    monkeypatch.setattr(s_run.subprocess, "Popen", REAL_POPEN)
+    results = sched.check_flags({})
+    assert all(r["ok"] is ok for r in results.values())
+    for r in results.values():
+        assert r["status"] == ("一致" if ok else "不一致")
+        assert r["config_fields"] > 10
+        if not ok:
+            assert r["diff"]["gamma"] == [0.99, 0.98]
+            assert r["config_diff"]["gamma"] == [0.99, 0.98]
+    assert GIT.popen_calls == [] and not sched.miles.exists()
+
+
+@pytest.mark.parametrize("pair,expected", [
+    ({"mean_load1": 7.5, "mean_busy_cores": 6.25, "load_sum": 90, "load_n": 2}, (7.5, 6.25)),
+    ({"load_sum": 21, "load_n": 3, "busy_sum": 15, "busy_n": 3}, (7, 5)),
+    ({"mean_load1": None, "mean_busy_cores": None, "load_sum": 12, "load_n": 3, "busy_sum": 6, "busy_n": 3}, (4, 2)),
+    ({"mean_load1": 0, "mean_busy_cores": 0, "load_sum": 12, "load_n": 3}, (0, 0)),
+    ({}, (None, None)),
+    ({"load_n": 2, "busy_n": 3}, (None, None)),
+    ({"load_sum": 1, "load_n": 0, "busy_sum": 2, "busy_n": 0}, (None, None)),
+])
+def test_control_metrics與pair_state負載(tmp_path, monkeypatch, pair, expected):
+    sched = make_scheduler(tmp_path, monkeypatch)
+    root = tmp_path / "controls"
+    s_run.save_json(root / "pair_state.json", {"pairs": {"303": pair, "101": {"mean_load1": 99}}})
+    c = sched.control_metrics(303)
+    assert (c["load1"], c["busy"]) == expected
+    assert c["updates"] == 1000 and c["env_steps"] == 5000 and c["ups"] == pytest.approx(1000 / 10800)
+    assert c["episodes"] == 80 and c["active_s"] == 10800
+    assert c["mean"] == 10000 and c["median"] == 5000 and c["r1024"] == 0.5 and c["r2048"] == 0.01
+    assert c["rr"] == 0.45 and c["nan"] == 0
+    assert sched.controls["303"]["load"]["state"] == str(root / "pair_state.json")
+    for seed in (101, 202):
+        d = Path(sched.controls[str(seed)]["dir"])
+        (d / "eval_end").unlink()  # LONG 不要求 eval_end；只讀指定 t180。
+        (d / "eval.json").write_text('{"mean": 99999}')
+        m = sched.control_metrics(seed)
+        assert m["mean"] == 10000 and m["load1"] is None and m["busy"] is None
+        assert "未記錄" in m["load_note"] and "CPU 4–7" in m["load_note"]
+    plant(sched, "S_s101", mean=13000, r1024=0.7, updates=600)
+    m = sched.metrics("S_s101", {"batches": {"1": {"mean_load1": 8.1, "mean_busy_cores": 6.3}}})
+    assert m["load1"] == 8.1 and m["busy"] == 6.3
+
+
+@pytest.mark.parametrize("file", ["train.json", "evals/t0180.json"])
+def test_LONG缺失或無效資料不算完成(tmp_path, monkeypatch, file):
+    sched = make_scheduler(tmp_path, monkeypatch)
+    path = Path(sched.controls["101"]["dir"]) / file
+    path.unlink()
+    assert sched.control_metrics(101) is None
+    path.write_text('[]')
+    assert sched.control_metrics(101) is None
+    path.write_text('{}')
+    assert sched.control_metrics(101) is None
+
+
+def test_配對差樣本SD與範圍手算(tmp_path, monkeypatch):
+    sched = make_scheduler(tmp_path, monkeypatch)
+    # mean 差 [1000,2000,3000] → SD=1000；ratio [1.1,1.2,1.3] → SD=.1；dpp [10,20,30] → SD=10。
+    for i, seed in enumerate((101, 202, 303), 1):
+        plant_seed(sched, seed, s_mean=10000 + i * 1000, c_mean=10000,
+                   s_r=0.5 + i * 0.1, c_r=0.5, s_up=600, c_up=1000)
+    result = sched.verdicts({})
+    assert [r["mean_diff"] for r in result["paired"]] == [1000, 2000, 3000]
+    for key, numbers in {"mean_diff": (1000, 1000, 3000), "ratio": (0.1, 1.1, 1.3), "dpp": (10, 10, 30)}.items():
+        assert [result["spread"][key][k] for k in ("sd", "min", "max")] == pytest.approx(numbers)
+    assert "mean_diff SD 1000.000" in sched.finish_text({})
+    (sched.runs / "S_s303" / "eval_end").unlink()
+    partial = sched.verdicts({})
+    assert len(partial["paired"]) == 2 and all(v is None for v in partial["spread"].values())
+
+
+def assert_markdown_tables(md):
+    tables, current = [], []
+    for line in md.splitlines() + [""]:
+        if line.startswith("|"):
+            current.append(line)
+        elif current:
+            tables.append(current)
+            current = []
+    assert len(tables) >= 7
+    for table in tables:
+        assert len({line.count("|") for line in table}) == 1, table
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_報表並列配對差表及欄數一致(tmp_path, monkeypatch, complete):
+    sched = make_scheduler(tmp_path, monkeypatch)
+    if complete:
+        for seed in (101, 202, 303):
+            plant_seed(sched, seed, s_mean=13000, c_mean=10000, s_r=0.7, c_r=0.5, s_up=600, c_up=1000)
+    sched.write_fragment({"batches": {}}, [])
+    md = sched.status_path.read_text()
+    assert_markdown_tables(md)
+    assert "S 與對照並列" in md and "每 seed 配對差（S−C）" in md
+    assert "3 個 seed＝3 條確定性軌跡（n=3），seed 間變異是唯一的變異估計" in md
+    assert "對照不同時段、負載不同，只並列不校正" in md
+    assert "E1-AS-LONG_s101 t180" in md and "C_s303 t180" in md
+    assert "未記錄（extra 排程器未取樣" in md
+    assert "兩批" not in md and "skipctl" not in md and "同時段 C" not in md
+    snapshot = md.split("探索性快照（只列 S")[1]
+    assert "LONG" not in snapshot and "C_s303" not in snapshot
+
+
+def test_publish複製controls並納入變動偵測(tmp_path, monkeypatch):
+    sched = make_scheduler(tmp_path, monkeypatch, publish=True)
+    sched.status_path.write_text("狀態\n")
+    state = {"started": "x", "batches": {}}
+    before = {str(f): f.read_bytes() for f, _ in sched.control_files()}
+    assert sched.publish(state)
+    signature = sched.publication_sig(state)
+    for control in sched.controls.values():
+        for file in (control["eval"], "train.json", "meta.json"):
+            source = Path(control["dir"]) / file
+            target = sched.repo / RESULTS / "controls" / control["name"] / file
+            assert target.read_bytes() == before[str(source)] == source.read_bytes()
+    c_meta = Path(sched.controls["101"]["dir"]) / "meta.json"
+    c_meta.write_text(c_meta.read_text() + "\n")
+    assert sched.publication_sig(state) != signature
+    assert all(cmd[3] not in ("add", "commit") or RESULTS in cmd for cmd in git_cmds())
+
+
+def test_完成等待三個對照及快照收尾且只檢查S異常(tmp_path, monkeypatch):
+    sched = make_scheduler(tmp_path, monkeypatch)
+    for seed in (101, 202, 303):
+        plant_seed(sched, seed, s_mean=13000, c_mean=10000, s_r=0.7, c_r=0.5, s_up=600, c_up=1000)
+    state = {"started": "x", "batches": {"1": {"started": "x"}}, "pids": {}}
+    s_run.save_json(sched.state_path, state)
+    calls = []
+    sched.anomalies = lambda job: calls.append(job["name"]) or []
+    c_train = Path(sched.controls["303"]["dir"]) / "train.json"
+    payload = c_train.read_text()
+    c_train.unlink()
+    first = tick_at(sched, NOT_BEFORE)
+    assert first["batches"]["1"]["done"] and not first.get("done")
+    c_train.write_text(payload)
+    sched.snapshots_finished = lambda st: False
+    assert not tick_at(sched, NOT_BEFORE + 30).get("done")
+    sched.snapshots_finished = lambda st: True
+    done = tick_at(sched, NOT_BEFORE + 60)
+    assert done["done"] and "採用 S" in done["completion_text"]
+    assert set(calls) == {"S_s101", "S_s202", "S_s303"}
