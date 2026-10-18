@@ -1,6 +1,6 @@
 # 第二輪 S 正式訓練排程（S_PREREG 修訂 1–4 的自動接續）
 
-排程器在 `/workspace/rl2048-review/skip-run/`：loop 每 30 秒 tick 一次，keepalive 掛了會重開，最多 30 次。最近一次重啟是 2026-10-18 14:24 台北，目前狀態：**等待中**。本目錄的 `scheduler/` 是那份程式的快照，僅供紀錄。
+排程器在 `/workspace/rl2048-review/skip-run/`：loop 每 30 秒 tick 一次，keepalive 掛了會重開，最多 30 次。最近一次重啟是 2026-10-18 14:35 台北，目前狀態：**等待中**。本目錄的 `scheduler/` 是那份程式的快照，僅供紀錄。
 訓練程式固定在 detached worktree `/workspace/rl2048-review/wt-skip-run` @ e9ab8a3（S_PREREG 修訂 4 的 commit）。它和 28a8f8b／6c39511／c0dc1c3 只差 results/ 底下的文件，訓練程式完全相同。開跑前會核對 commit，不符就不開跑。
 
 | 批次 | job | CPU | nice／threads | 開跑條件 | 預計（台北） |
