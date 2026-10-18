@@ -1,0 +1,15 @@
+[delegate] grok: check 1: 9/9 done, files changed 0, progress.md same, strikes 1/3
+[delegate] grok: check 2: 10/15 done, files changed 1, progress.md changed, strikes 0/3
+[delegate] engine=grok task=research status=ok attempts=grok:ok secs=702.7 run_id=df97d22f9882
+我先讀寫作規則、既有文獻與進度，再在 PROGRESS.md 列出子任務 B 的待辦並開始發想。文獻已讀完。接著對照程式與第一輪設定，確認發想要改哪些檔，並先把子任務 B 的待辦寫進 PROGRESS.md。文獻與程式的瓶頸已對上。我先把子任務 B 的待辦寫進 PROGRESS.md，再補發想、候選實驗和摘要。子任務 B 已寫完。文獻節未改。#2 的下跌對應的是固定 replay ratio 0.45 時，oldest-policy age 從 2,700 增到 45,000 updates，updates/s 仍在 42 附近；n=3 在小 buffer 已經失敗。
+
+發想 6 條、候選實驗 3 個，都疊在目前的 `onehot_afterstate`（n=1、容量 6,000、replay ratio 0.45）上：
+
+- **C1** 向量化 replay 的 afterstate 展開，學習規則不變。採用門檻是同波次對照的吞吐 ≥ ×1.10，且 eval mean ≥ ×1.00、≥1024 不下降。
+- **C2** 只動資料軸：replay ratio 0.25（age 1,500）與容量 24,000 × replay ratio 0.1125（age 仍為 2,700）。採用沿用每個 seed mean ≥ ×1.20 且 ≥1024 ≥ +10pp。
+- **C3** 同步 4 盤，列為第二波，等 C1 的 acting forward 計時中位數 ≥ 25% 才開。
+
+沒有新的 URL。
+
+- `/workspace/rl2048-review/wt-research2/research/round2/track2_cpu_efficiency/FINDINGS.md`
+- `/workspace/rl2048-review/wt-research2/research/round2/track2_cpu_efficiency/PROGRESS.md`
