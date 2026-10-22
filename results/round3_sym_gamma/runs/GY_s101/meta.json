@@ -1,0 +1,86 @@
+{
+ "job": {
+  "name": "GY_s101",
+  "arm": "GY",
+  "seed": 101,
+  "batch": 3
+ },
+ "commit": "d70a97295fa339aa8aa9d9e336348affcdc99e4c",
+ "prereg": "results/round3_sym_gamma/ROUND3_PREREG.md（2026-10-18 16:33 台北，commit d70a972）",
+ "cpus": "0-5",
+ "nice": 10,
+ "threads": 2,
+ "minutes": 180,
+ "snapshots": [
+  90,
+  120,
+  150
+ ],
+ "started": "2026-10-22 23:33:50 Taipei",
+ "script": "/workspace/rl2048-review/.venv/bin/python main.py train --arch onehot_afterstate --from-scratch --n-step 1 --memory-capacity 6000 --replay-ratio 0.45 --per-max-priority tree --reward-mode log --gamma 0.99 --eps-schedule episode_exp --eps-start 0.15 --eps-min 0.001 --eps-decay 0.999 --eps-decay-start-episode 128 --restart-frac 0 --budget-clock active --reward-mode raw --gamma 1.0 --value-rescale h --sym-aug random --seed 101 --threads 2 --minutes 180 --save-every 1 --save-as /workspace/rl2048-review/round3-run/runs/GY_s101/ckpt --log /workspace/rl2048-review/round3-run/runs/GY_s101/train.csv > /workspace/rl2048-review/round3-run/runs/GY_s101/train.out 2>&1 && date +%s > /workspace/rl2048-review/round3-run/runs/GY_s101/eval_start && OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 timeout --signal=TERM --kill-after=30s 30m /workspace/rl2048-review/.venv/bin/python eval.py --checkpoint /workspace/rl2048-review/round3-run/runs/GY_s101/ckpt --policy greedy --games 100 --seed-start 1000 --board fast --max-steps 5000 --json /workspace/rl2048-review/round3-run/runs/GY_s101/eval.json > /workspace/rl2048-review/round3-run/runs/GY_s101/eval.out 2>&1 && date +%s > /workspace/rl2048-review/round3-run/runs/GY_s101/eval_end && OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 timeout --signal=TERM --kill-after=30s 20m /workspace/rl2048-review/.venv/bin/python /workspace/rl2048-review/round3-run/r3_corner.py /workspace/rl2048-review/experiments/wt-round3-run /workspace/rl2048-review/corner /workspace/rl2048-review/round3-run/runs/GY_s101/ckpt /workspace/rl2048-review/round3-run/runs/GY_s101/eval.json /workspace/rl2048-review/round3-run/runs/GY_s101/corner.json 100 1000 5000 > /workspace/rl2048-review/round3-run/runs/GY_s101/corner.out 2>&1",
+ "flagcheck": {
+  "ok": true,
+  "arm_config_diff": {
+   "gamma": [
+    1.0,
+    0.99
+   ],
+   "reward_mode": [
+    "raw",
+    "log"
+   ],
+   "sym_aug": [
+    "random",
+    "none"
+   ],
+   "value_rescale": [
+    "h",
+    "none"
+   ]
+  },
+  "unexpected_arm_diff": {},
+  "missing_arm_diff": [],
+  "unexpected_arm_cli": {},
+  "control_cli_diff": {},
+  "control_config_diff": {},
+  "config_fields": 31,
+  "ref_argv": [
+   "train",
+   "--from-scratch",
+   "--per-max-priority",
+   "tree",
+   "--budget-clock",
+   "active",
+   "--arch",
+   "onehot_dueling",
+   "--replay-ratio",
+   "0.45",
+   "--eps-schedule",
+   "episode_exp",
+   "--eps-start",
+   "0.15",
+   "--eps-min",
+   "0.001",
+   "--eps-decay",
+   "0.999",
+   "--eps-decay-start-episode",
+   "128",
+   "--arch",
+   "onehot_afterstate",
+   "--seed",
+   "101",
+   "--threads",
+   "2",
+   "--minutes",
+   "180",
+   "--save-every",
+   "1",
+   "--save-as",
+   "/workspace/rl2048-review/experiments/runs/E1-AS-LONG_s101/ckpt",
+   "--log",
+   "/workspace/rl2048-review/experiments/runs/E1-AS-LONG_s101/train.csv"
+  ],
+  "status": "一致"
+ },
+ "launcher_pid": 170959
+}
