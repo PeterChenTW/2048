@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=rl2048 scheduler autorecover (no training)
+Exec=bash /workspace/rl2048-review/experiments/sched_autorecover.sh
+X-GNOME-Autostart-enabled=true
