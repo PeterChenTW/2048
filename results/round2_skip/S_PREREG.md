@@ -222,3 +222,16 @@ S 照修訂 5 的現狀跑、不重開：5 個 job、10 個訓練 thread 共用 
 
 ### 實作
 `skip-run/s_run.py` 的結果產生器（寫 S_STATUS.md／S_RESULTS.md）依此規則輸出每個 seed 的 PASS／FAIL／INCONCLUSIVE_COMPUTE、updates 比值與整體結論（採用 S／不採用／待補跑）。改前備份 `skip-run/bak_amend6/`，加邊界測試（×1.00、×1.20、updates 比 0.90 剛好等於）。正在跑的 S_s101／s202／s303／s404 與 C_s404 訓練不受影響。
+
+## 修訂 7（事前登記，PM 10-18 20:07 台北核定的復原方案；10-22 執行，任何新 S 結果出來之前）
+
+### 事件
+- 2026-10-18 19:58:54 台北 box 重開機／還原，所有訓練中斷：S_s101／s202／s303／s404 約在 t110（只有 t90 快照），C_s404 約在 t128（有 t90、t120 快照）。`.venv` 遺失。
+- 10-18 20:40 至 10-21 23:55 box 多次凍結，10-22 05:07 又重開；10-22 10:45–10:48 再有一次約 170 秒的暫停。復原在 10-22 10:48–10:58 連續觀察 10 分鐘無凍結後才開跑。
+
+### 處理（不改判定規則）
+- **不續跑、從頭重跑。** 中斷的 run 目錄改名為 `S_s101_interrupted`…`S_s404_interrupted`、`C_s404_interrupted`（不刪），舊 state 存為 `s_state.interrupted_20261022.json`。中斷 run 的 t90 數字只當紀錄，不進任何判定。
+- **同設定、5 個同時：** C_s404（同一 commit 497bad4、同 script，CPU 0–7、nice 10、2 threads）10-22 10:58 台北開跑；S×4（同 commit e9ab8a3、同 s_config）10-22 11:01:02 台北開跑。仍是 5 個 job、10 個 thread 共用 8 核，修訂 5／6 的負載條件與 INCONCLUSIVE_COMPUTE 規則照舊適用。
+- **環境：** `.venv` 依 requirements.txt 重建（torch 2.14.1+cpu、numpy 2.5.4、pandas 3.0.6；原版本當時沒記錄）。
+- **決定性檢查：** 比對新 run 與 *_interrupted 前 N 局 train.csv 的整數欄位（score_v2／max_tile／steps），以及 t90 eval。不一致只標記、不停訓練。開跑後前 13–30 局全部一致，loss 也逐位相同（`experiments/logs/DETERMINISM_20261022.md` 持續更新）。
+- 正式判定、門檻、對照（s101／s202 對 LONG t180，s303 對 C_s303 t180，s404 探索性對 C_s404）都不變。
