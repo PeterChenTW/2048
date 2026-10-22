@@ -16,7 +16,7 @@
   120,
   150
  ],
- "started": "2026-10-22 14:37:11 Taipei",
+ "started": "2026-10-22 16:41:53 Taipei",
  "script": "/workspace/rl2048-review/.venv/bin/python main.py train --arch onehot_afterstate --from-scratch --n-step 1 --memory-capacity 6000 --replay-ratio 0.45 --per-max-priority tree --reward-mode log --gamma 0.99 --eps-schedule episode_exp --eps-start 0.15 --eps-min 0.001 --eps-decay 0.999 --eps-decay-start-episode 128 --restart-frac 0 --budget-clock active --sym-aug random --seed 303 --threads 2 --minutes 180 --save-every 1 --save-as /workspace/rl2048-review/round3-run/runs/Y_s303/ckpt --log /workspace/rl2048-review/round3-run/runs/Y_s303/train.csv > /workspace/rl2048-review/round3-run/runs/Y_s303/train.out 2>&1 && date +%s > /workspace/rl2048-review/round3-run/runs/Y_s303/eval_start && OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 timeout --signal=TERM --kill-after=30s 30m /workspace/rl2048-review/.venv/bin/python eval.py --checkpoint /workspace/rl2048-review/round3-run/runs/Y_s303/ckpt --policy greedy --games 100 --seed-start 1000 --board fast --max-steps 5000 --json /workspace/rl2048-review/round3-run/runs/Y_s303/eval.json > /workspace/rl2048-review/round3-run/runs/Y_s303/eval.out 2>&1 && date +%s > /workspace/rl2048-review/round3-run/runs/Y_s303/eval_end && OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 timeout --signal=TERM --kill-after=30s 20m /workspace/rl2048-review/.venv/bin/python /workspace/rl2048-review/round3-run/r3_corner.py /workspace/rl2048-review/experiments/wt-round3-run /workspace/rl2048-review/corner /workspace/rl2048-review/round3-run/runs/Y_s303/ckpt /workspace/rl2048-review/round3-run/runs/Y_s303/eval.json /workspace/rl2048-review/round3-run/runs/Y_s303/corner.json 100 1000 5000 > /workspace/rl2048-review/round3-run/runs/Y_s303/corner.out 2>&1",
  "flagcheck": {
   "ok": true,
@@ -78,5 +78,5 @@
   ],
   "status": "一致"
  },
- "launcher_pid": 271113
+ "launcher_pid": 10914
 }
