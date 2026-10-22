@@ -1,0 +1,51 @@
+{
+  "arch": "onehot_afterstate",
+  "value_skip": "none",
+  "n_step": 1,
+  "memory_capacity": 6000,
+  "per_max_priority": "tree",
+  "track_replay_age": false,
+  "episodes": 2111,
+  "gamma": 1.0,
+  "reward_mode": "raw",
+  "reward_scale": 256.0,
+  "epsilon_schedule": "episode_exp",
+  "epsilon_start": 0.15,
+  "epsilon_min": 0.001,
+  "epsilon_decay_steps": 200000,
+  "env_steps": 891714,
+  "updates": 401214,
+  "replay_ratio_requested": 0.45,
+  "replay_ratio_actual": 0.44993574172885026,
+  "duration_s": 10869.398203351004,
+  "score_last_100_mean": 5495.36,
+  "loss_first_50_mean": 2.2673237442970278,
+  "loss_last_50_mean": 0.42532227918505666,
+  "q_stats_ranges": {
+    "q_mean": {
+      "min": -0.0008254441199824214,
+      "max": 56.1529426574707
+    },
+    "q_min": {
+      "min": -97.44100952148438,
+      "max": 25.577260971069336
+    },
+    "q_max": {
+      "min": 0.0005023103440180421,
+      "max": 140.6011199951172
+    }
+  },
+  "nan_count": 0,
+  "stopped_reason": null,
+  "interrupted": false,
+  "checkpoint": "/workspace/rl2048-review/round3-run/runs/GY_s101/ckpt",
+  "loaded_checkpoint": null,
+  "sym_aug": "random",
+  "value_rescale": "h",
+  "value_rescale_eps": 0.001,
+  "epsilon_decay": 0.999,
+  "epsilon_decay_start_episode": 128,
+  "budget_clock": "active",
+  "active_s": 10800.008490196004,
+  "skipped_s": 68.47481874100049
+}
