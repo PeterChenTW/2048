@@ -1,4 +1,4 @@
-# ROUND3（G／Y／GY）狀態與結果（更新：2026-10-22 19:36:29 台北）
+# ROUND3（G／Y／GY）狀態與結果（更新：2026-10-22 20:03:05 台北）
 
 事前登記：results/round3_sym_gamma/ROUND3_PREREG.md（2026-10-18 16:33 台北，commit d70a972）。
 3 批 × 3 個 job（每批同一個 seed 的 G、Y、GY），每個 job 2 threads、nice 10、CPU 0–5、180 分鐘 active；順序 s303 → s202 → s101。
