@@ -1,0 +1,48 @@
+{
+  "arch": "onehot_afterstate",
+  "value_skip": "l1",
+  "n_step": 1,
+  "memory_capacity": 6000,
+  "per_max_priority": "tree",
+  "track_replay_age": false,
+  "episodes": 1139,
+  "gamma": 0.99,
+  "reward_mode": "log",
+  "reward_scale": 256.0,
+  "epsilon_schedule": "episode_exp",
+  "epsilon_start": 0.15,
+  "epsilon_min": 0.001,
+  "epsilon_decay_steps": 200000,
+  "env_steps": 380614,
+  "updates": 171219,
+  "replay_ratio_requested": 0.45,
+  "replay_ratio_actual": 0.4498494537773177,
+  "duration_s": 10800.458674027002,
+  "score_last_100_mean": 4618.16,
+  "loss_first_50_mean": 0.004799061920493841,
+  "loss_last_50_mean": 0.0012821044056909158,
+  "q_stats_ranges": {
+    "q_mean": {
+      "min": -0.00041182312997989357,
+      "max": 3.284336566925049
+    },
+    "q_min": {
+      "min": -1.8123985528945923,
+      "max": 2.674436092376709
+    },
+    "q_max": {
+      "min": 0.003229736117646098,
+      "max": 5.0529656410217285
+    }
+  },
+  "nan_count": 0,
+  "stopped_reason": null,
+  "interrupted": false,
+  "checkpoint": "/workspace/rl2048-review/skip-run/runs/S_s404/ckpt",
+  "loaded_checkpoint": null,
+  "epsilon_decay": 0.999,
+  "epsilon_decay_start_episode": 128,
+  "budget_clock": "active",
+  "active_s": 10800.027952361,
+  "skipped_s": 0.0
+}
