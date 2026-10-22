@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """n-tuple seed 2 gated auto-rerun (PM 2026-10-18 17:28 Taipei). Read-only towards every other job.
 Phases: WAITING_GATE -> TRAINING -> WAITING_EVAL -> EVALUATING -> DONE  (or STOPPED_THROUGHPUT / FAILED).
-Gate : Round 3 batch 1 (G/Y/GY_s303, CPU 0-5) running, all 3 train.csv updating, >=15 min active baseline,
-       no other eval running now and none seen in the last 15 min.
+Gate (v2, PM 10-22 15:xx): Round 3 all 3 batches (G/Y/GY x s303/s202/s101) complete incl. final eval
+       (r3_state.json done, or every job has eval_end+eval.json+corner.json), no R3 train/eval/corner process left,
+       machine idle (load1 < idle_load1 for every sample in the last idle_wall_s), no other eval / n-tuple job.
+       State migration: STOPPED_THROUGHPUT attempt 1 (v1 gate) -> archived, attempt 2 WAITING_GATE.
+       (v1 gate = R3 batch 1 running with baseline; kept in s2_rerun.py.bak_20261022b.)
 Train: nice 19, taskset -c 7, `./train 2 3600 rerun_s2/snapshots` (same binary/PREREG/snapshot points as seed 1).
 Guard: every minute, each arm's env steps per active-second over trailing 300 active-s (5-min MA) vs 15-min baseline;
        an arm below 0.95x baseline on 3 consecutive non-excluded checks -> kill seed 2, STOPPED_THROUGHPUT.
@@ -18,7 +21,10 @@ NT = Path("/workspace/rl2048-review/corner/ntuple")
 CFG = {
     "r3_runs": "/workspace/rl2048-review/round3-run/runs",
     "r3_state": "/workspace/rl2048-review/round3-run/r3_state.json",
-    "r3_jobs": ["G_s303", "Y_s303", "GY_s303"],
+    "r3_jobs": [f"{a}_s{s}" for s in (303, 202, 101) for a in ("G", "Y", "GY")],
+    "gate_version": 2,
+    "idle_load1": 2.0,
+    "idle_wall_s": 600,                # load1 < idle_load1 for every sample over this many wall seconds
     "other_run_globs": ["/workspace/rl2048-review/experiments/runs/*", "/workspace/rl2048-review/experiments/runs/round2/*",
                         "/workspace/rl2048-review/skip-run/runs/*", "/workspace/rl2048-review/round3-run/runs/*"],
     "busy_scripts": ["eval.py", "r3_corner.py", "run_corner.py"],
@@ -55,7 +61,7 @@ CFG = {
 if os.environ.get("S2_TEST_CONFIG"):
     CFG.update(json.load(open(os.environ["S2_TEST_CONFIG"])))
 OUT = Path(CFG["out"]); WD = Path(CFG["workdir"])
-STATE = OUT / "s2_state.json"; STATUS = OUT / "S2_STATUS.md"; LOG = OUT / "s2_rerun.log"; MON = OUT / "s2_monitor.csv"
+STATE = OUT / "s2_state.json"; STATUS = OUT / "S2_STATUS.md"; LOG = OUT / "s2_rerun.log"; MON = OUT / "s2_monitor_v2.csv"
 SNAPDIR = OUT / "snapshots"; EVALDIR = OUT / "eval"; LOGDIR = OUT / "logs"
 BEGIN, END = "<!-- S2_RERUN_BEGIN -->", "<!-- S2_RERUN_END -->"
 
@@ -133,7 +139,8 @@ def r3_arm_info(procs):
         rows = read_train_csv(p)
         try: age = now() - p.stat().st_mtime
         except OSError: age = None
-        info[j] = dict(alive=str(p) in tp, age=age, elapsed=rows[-1][0] if rows else None,
+        d = Path(CFG["r3_runs"]) / j
+        info[j] = dict(done=all((d / x).is_file() for x in ("eval_end", "eval.json", "corner.json")), alive=str(p) in tp, age=age, elapsed=rows[-1][0] if rows else None,
                        base=rate(rows, CFG["baseline_active_s"]), ma=rate(rows, CFG["guard_window_active_s"]))
     return info
 
@@ -174,6 +181,17 @@ def r3_presence(procs):
     dirs = any((Path(CFG["r3_runs"]) / j).is_dir() for j in CFG["r3_jobs"])
     return sched, dirs
 
+def r3_complete(arms):
+    """R3 三批（含最終 eval＋corner）全部完成？以 r3_state.json done 或每個 job 的 eval_end/eval.json/corner.json 為準。"""
+    try: sd = bool(json.load(open(CFG["r3_state"])).get("done"))
+    except Exception: sd = False
+    return sd or all(a.get("done") for a in arms.values()), sd
+
+def r3_procs(procs):
+    """仍在跑、和 R3 有關的 process（訓練、eval、corner、bash -c 鏈）pid 清單；排程器本身不算。"""
+    root = str(Path(CFG["r3_runs"]))
+    return [pid for pid, a in procs if any(root in x for x in a) and not any(Path(x).name == CFG["r3_sched_script"] for x in a[:3])]
+
 def milestone(text):
     mp = Path(CFG["milestones"])
     try:
@@ -191,7 +209,7 @@ def check_r3_missing(st, procs, arms):
     sched, dirs = r3_presence(procs)
     alive_any = any(a["alive"] for a in arms.values())
     t = now()
-    if sched or alive_any:
+    if sched or alive_any or r3_complete(arms)[0]:
         if st.get("gate_anomaly"):
             event(st, "R3 已恢復（排程器或訓練在跑），清除閘門異常")
         st.pop("r3_missing_since", None); st.pop("gate_anomaly", None)
@@ -207,17 +225,21 @@ def check_r3_missing(st, procs, arms):
     return st["gate_anomaly"]
 
 def gate(st, procs, fe, arms):
-    """returns (ok, reasons)"""
+    """v2 閘門：R3 全部完成 + R3 process 都不在 + 機器空閒。returns (ok, reasons)"""
     why = []
-    for j, a in arms.items():
-        if not a["alive"]: why.append(f"{j} 訓練 process 不在")
-        elif a["age"] is None or a["age"] > CFG["csv_fresh_s"]: why.append(f"{j} train.csv 沒在更新")
-        elif a["base"] is None: why.append(f"{j} active 時間 {a['elapsed'] or 0:.0f}s < {CFG['baseline_active_s']}s（baseline 不足）")
+    comp, sd = r3_complete(arms)
+    if not comp:
+        nd = [j for j, a in arms.items() if not a.get("done")]
+        why.append(f"R3 尚未全部完成（含最終 eval／corner）：未完成 {len(nd)}/{len(arms)} 個 job：{'、'.join(nd)}")
+    rp = r3_procs(procs)
+    if rp: why.append(f"R3 相關 process 還在：{rp[:6]}")
     if fe: why.append("他人 eval 進行中：" + "；".join(fe[:3]))
-    t = now(); recent = [s for s in st.get("samples", []) if t - s["t"] <= CFG["baseline_quiet_wall_s"]]
-    if any(s["fe"] for s in recent): why.append(f"最近 {CFG['baseline_quiet_wall_s']//60} 分鐘內有他人 eval（baseline 需乾淨）")
-    elif not recent or t - min(s["t"] for s in recent) < CFG["baseline_quiet_wall_s"] - 2 * CFG["poll_s"]:
-        why.append("觀察時間不足 15 分鐘（需連續取樣確認沒有他人 eval）")
+    t = now(); recent = [s for s in st.get("samples", []) if t - s["t"] <= CFG["idle_wall_s"]]
+    if any(s.get("load1", 99) >= CFG["idle_load1"] for s in recent):
+        why.append(f"機器未空閒：最近 {CFG['idle_wall_s']//60} 分鐘 load1 最高 {max(s.get('load1', 99) for s in recent):.2f}（需全部 < {CFG['idle_load1']}）")
+    elif not recent or t - min(s["t"] for s in recent) < CFG["idle_wall_s"] - 2 * CFG["poll_s"]:
+        why.append(f"空閒觀察時間不足 {CFG['idle_wall_s']//60} 分鐘")
+    if any(s["fe"] for s in recent): why.append(f"最近 {CFG['idle_wall_s']//60} 分鐘內有他人 eval")
     ot = own_ntuple_running(procs)
     if ot: why.append(f"已有其他 n-tuple train/nteval 在跑：{ot}")
     if in_quiet_window(): why.append("17:45–18:00 靜默時段")
@@ -325,9 +347,9 @@ def write_results(st):
          "### 5.1 執行紀錄",
          f"- **seed 2 補跑**：CPU {CFG['cpu']}，nice 19，單執行緒，同一個 `train` 執行檔、同 PREREG（§1–§4）、同 10 個快照點。"
          f"{ts(st['train_start'])} 開跑（attempt {st['attempt']}），{ts(st.get('train_end', now()))} 結束。訓練時間 {T:,.2f} 秒，共 {G:,} 局、{U/1e8:.1f} 億次 TD 更新，平均 {U/T/1e4:.0f} 萬次更新/秒、{G/T:.0f} 局/秒。",
-         f"- 快照在 `rerun_s2/snapshots/`，eval 在 `rerun_s2/eval/`；16:19 那次被守門停掉的舊 seed 2（5 s–4 m）保留在 `snapshots/` 與上面 §3，未覆蓋。",
-         f"- 開跑閘門：Round 3 第 1 批（{'、'.join(CFG['r3_jobs'])}，CPU 0–5）都在跑、train.csv 都在更新，baseline 取開跑前 {CFG['baseline_active_s']//60} 分鐘 active 時間；開跑前 15 分鐘內沒有他人 eval。",
-         "- baseline（env steps／active 秒）：" + "、".join(f"{j} {b:.1f}" for j, b in st.get("baseline", {}).items()) + "。",
+         f"- 快照在 `rerun_s2/snapshots/`，eval 在 `rerun_s2/eval/`；先前被吞吐守門停掉的 attempt 歸檔在 `rerun_s2/attempts/`，未覆蓋。",
+         f"- 開跑閘門（v2，PM 10-22）：Round 3 三批（{len(CFG['r3_jobs'])} 個 job）全部完成含最終 eval、R3 process 都不在、開跑前 {CFG['idle_wall_s']//60} 分鐘 load1 皆 < {CFG['idle_load1']}、沒有他人 eval。",
+         "- baseline（env steps／active 秒）：" + ("、".join(f"{j} {b:.1f}" for j, b in st.get("baseline", {}).items()) or "無（開跑時 R3 已結束）") + "。",
          f"- 吞吐守門（每分鐘、5 分鐘移動平均，任一 arm 連續 {CFG['guard_consecutive']} 次 < baseline×{1-CFG['guard_drop']:.2f} 就停）：共 {g.get('checks', 0)} 次檢查、{g.get('excluded', 0)} 次因他人 eval 排除，"
          "最低比值 " + "、".join(f"{j} {(v-1)*100:+.1f}%" for j, v in mr.items()) + "；未觸發。",
          "- 訓練期間碰到的他人 eval：" + ("；".join(st.get("train_overlaps", [])[:10]) or "無") + "。",
@@ -390,6 +412,15 @@ def write_status(st, why=None):
 def main_loop():
     st = load_state(); last = None
     st.pop("wait_reason", None); st.pop("_adopt_checked", None)
+    if st["phase"] == "STOPPED_THROUGHPUT" and st.get("gate_version", 1) < CFG["gate_version"]:
+        # PM 10-22：attempt 1 被 v1 守門停掉 → 作廢歸檔，改用 v2 閘門（R3 全完成＋機器空閒）重新等待
+        st.setdefault("history", []).append({k: st.get(k) for k in ("attempt", "phase", "train_start", "train_end", "train_pid", "baseline", "guard", "last_guard", "train_overlaps")})
+        archive_attempt(st, "v1 吞吐守門停止；改用 v2 閘門")
+        for k in ("baseline", "guard", "last_guard", "train_overlaps", "train_pid", "train_start", "train_end", "train_cmd", "r3_missing_since", "gate_anomaly"): st.pop(k, None)
+        st["phase"] = "WAITING_GATE"; st["gate_version"] = CFG["gate_version"]
+        event(st, f"閘門改為 v2（R3 三批全部完成含最終 eval、R3 process 都不在、load1 < {CFG['idle_load1']} 持續 {CFG['idle_wall_s']//60} 分鐘），等待開跑 attempt {st['attempt']}")
+        save_state(st)
+    st.setdefault("gate_version", CFG["gate_version"])
     if st["phase"] in ("DONE", "STOPPED_THROUGHPUT", "FAILED"):
         write_status(st); log(f"已是終態 {st['phase']}，不動作"); return 0
     event(st, f"s2_rerun 啟動 pid {os.getpid()}，phase {st['phase']}")
@@ -408,8 +439,8 @@ def main_loop():
             ga = check_r3_missing(st, procs, arms)
             if ga: why = [f"⚠ 閘門異常：{ga['why']}（自 {ga['since']}；已寫里程碑回報）", *why]
             if ok:
-                st["baseline"] = {j: a["base"] for j, a in arms.items()}
-                event(st, "閘門通過；baseline " + "、".join(f"{j} {b:.1f}" for j, b in st["baseline"].items()))
+                st["baseline"] = {j: a["base"] for j, a in arms.items() if a["alive"] and a["base"]}  # v2：R3 已結束 → 通常為空，守門無對象
+                event(st, f"閘門通過（v2）：R3 全部完成、無 R3 process、load1 {s['load1']}；baseline " + ("、".join(f"{j} {b:.1f}" for j, b in st["baseline"].items()) or "無（R3 已不在，守門無可比對象）"))
                 if CFG["dry_run"]:
                     st["phase"] = "DRY_RUN_GATE_OPEN"; save_state(st); write_status(st); return 0
                 start_train(st); st["guard"] = {"breach": {}, "excluded": 0, "checks": 0, "min_ratio": {}}; st["train_overlaps"] = []

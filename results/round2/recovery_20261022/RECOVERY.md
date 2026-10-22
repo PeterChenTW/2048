@@ -11,3 +11,9 @@
 | 6 | box 沒有 cron／systemd（PID 1 是 tini），改用 XDG autostart（`rl2048-sched-autorecover.desktop` → `sched_autorecover.sh`），只啟動排程器 keepalive，不啟動訓練；桌面 session 沒起來的話不會觸發，所以仍需在 `codex-supervisor recover` 之後手動跑一次 |
 
 seed 2 閘門修正：R3 排程器（r3_run.py）不在、而且沒有任何 R3 訓練在跑，持續超過 30 分鐘就把狀態標成 GATE_ANOMALY，寫一筆里程碑「n-tuple seed 2 異常 — 閘門等待不存在的 R3」（只寫一次）。R3 恢復後自動清除。閘門本身的條件不變。
+
+## 2026-10-22 15:10（台北）n-tuple seed 2 閘門 v2（PM 指示）
+- attempt 1（14:53 開跑）15:05 被吞吐守門停掉（STOPPED_THROUGHPUT）；已歸檔到 `rerun_s2/attempts/attempt1_151054`。
+- 新閘門：R3 三批 9 個 job（G/Y/GY × s303/s202/s101）全部完成含最終 eval＋corner（r3_state.json `done`，或每個 job 都有 eval_end/eval.json/corner.json）、R3 相關 process 都不在、最近 10 分鐘 load1 全部 < 2.0、沒有他人 eval／其他 n-tuple。通過後自動開跑 attempt 2，設定同 seed 1（`./train 2 3600`、CPU 7、nice 19、單執行緒），完成後 1,000 局 eval（seeds 1000–1999）＋ corner rate（全部步數、最大方塊 ≥256 後），寫入 NTUPLE_RESULTS.md §5。
+- 吞吐守門保留不放寬（R3 已不在時無比對對象）；GATE_ANOMALY 保留：R3 排程器不在且 R3 未完成持續 ≥30 分鐘即標記並寫里程碑。
+- 舊版備份：`s2_rerun.py.bak_20261022b`、`s2_state.json.bak_20261022b`。測試：`test_gate_anomaly.py` 9/9、`s2_run_tests.sh` 15/15 通過（輸出見 `s2_run_tests.out`）。

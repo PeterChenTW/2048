@@ -1,0 +1,23 @@
+== T1 R3 incomplete -> wait; complete but R3 process alive -> wait; process gone + idle -> attempt runs to DONE
+PASS T1a waiting: R3 not complete
+PASS T1b complete but R3 process alive -> still waiting
+PASS T1c DONE
+PASS T1d 10 evals ok, corner columns in results
+PASS T1e gate v2 logged, no baseline
+PASS T1f no gate anomaly (scheduler absent but R3 complete)
+== T2 r3_state.json done=true is accepted as completion; high load blocks
+PASS T2a waiting on load only
+== T3 migration: STOPPED_THROUGHPUT attempt 1 (v1) -> archived, attempt 2 WAITING_GATE
+PASS T3a attempt 2 waiting
+PASS T3b attempt 1 archived
+test/run_tests.sh: line 51: kill: (288685) - No such process
+PASS T3c re-start does not migrate again
+== T4 GATE_ANOMALY: scheduler absent + R3 incomplete beyond grace -> flagged + milestone
+PASS T4a flagged
+PASS T4b cleared once R3 complete
+PASS T4c DONE
+== T5 lock: second instance refused
+PASS T5 rc 3
+== T6 dry-run against REAL paths (read-only, 8 s)
+PASS T6 real gate WAITING_GATE, R3 incomplete
+RESULT pass=15 fail=0
