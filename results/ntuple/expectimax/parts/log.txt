@@ -1,0 +1,16 @@
+EXPECTIMAX d=2 nodes=158691818 EVAL ../../../corner/ntuple/snapshots/s1_t03600.bin games=250 secs=34.2
+EXPECTIMAX d=2 nodes=157647117 EVAL ../../../corner/ntuple/snapshots/s1_t03600.bin games=250 secs=34.3
+EXPECTIMAX d=2 nodes=159325874 EVAL ../../../corner/ntuple/snapshots/s1_t03600.bin games=250 secs=34.8
+EXPECTIMAX d=2 nodes=160078967 EVAL ../../../corner/ntuple/snapshots/s1_t03600.bin games=250 secs=34.8
+EXPECTIMAX d=2 nodes=170215589 EVAL ../../../corner/ntuple/rerun_s2/snapshots/s2_t03600.bin games=250 secs=36.0
+EXPECTIMAX d=2 nodes=171396692 EVAL ../../../corner/ntuple/rerun_s2/snapshots/s2_t03600.bin games=250 secs=36.1
+EXPECTIMAX d=2 nodes=171800866 EVAL ../../../corner/ntuple/rerun_s2/snapshots/s2_t03600.bin games=250 secs=36.4
+EXPECTIMAX d=2 nodes=174180672 EVAL ../../../corner/ntuple/rerun_s2/snapshots/s2_t03600.bin games=250 secs=37.7
+EXPECTIMAX d=3 nodes=2997462407 EVAL ../../../corner/ntuple/snapshots/s1_t03600.bin games=250 secs=648.2
+EXPECTIMAX d=3 nodes=3018134727 EVAL ../../../corner/ntuple/snapshots/s1_t03600.bin games=250 secs=651.0
+EXPECTIMAX d=3 nodes=3018674545 EVAL ../../../corner/ntuple/snapshots/s1_t03600.bin games=250 secs=651.6
+EXPECTIMAX d=3 nodes=3050320145 EVAL ../../../corner/ntuple/snapshots/s1_t03600.bin games=250 secs=655.9
+EXPECTIMAX d=3 nodes=3296737306 EVAL ../../../corner/ntuple/rerun_s2/snapshots/s2_t03600.bin games=250 secs=707.4
+EXPECTIMAX d=3 nodes=3337938423 EVAL ../../../corner/ntuple/rerun_s2/snapshots/s2_t03600.bin games=250 secs=714.2
+EXPECTIMAX d=3 nodes=3359438362 EVAL ../../../corner/ntuple/rerun_s2/snapshots/s2_t03600.bin games=250 secs=717.6
+EXPECTIMAX d=3 nodes=3352484924 EVAL ../../../corner/ntuple/rerun_s2/snapshots/s2_t03600.bin games=250 secs=719.0

@@ -16,3 +16,4 @@ d=3 夠快，**不縮減，跑滿 1000 局**。每步 ms 另以單 process、各
   - d=1 1000 局 CSV（前 18 欄）與原 t60 eval（corner/ntuple/eval/s1_t03600.csv、rerun_s2/eval/s2_t03600.csv）完全相同。
   - 強制走通用 search 路徑（EXPECTIMAX_GENERIC=1，double 運算）的 d=1：兩 seed 各 1000 局結果亦完全相同。
 - 10:44 d=2 完成（兩 seed 各 1000 局，8 process 平行）。ms/步待單 process 量測。
+- 11:05 d=3 完成（1000 局×2 seed）＋單 process 計時完成；報告 results/ntuple/EXPECTIMAX_RESULTS.md。全部完成。
