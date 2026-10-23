@@ -44,3 +44,9 @@
 
 ## 備註
 - 主評估用 8 process 平行（每組切 4×250 局），合併後與局序無關。重跑：`ntuple_expectimax/run_all.sh`，彙總：`python3 ntuple_expectimax/summarize.py`。
+
+## Demo 重播
+- `demo/expectimax/expectimax_demo.html`：單一離線 HTML，由 `build.py` 讀 `summary.json` 與 `traj_*.txt` 產生（`template.html` 為模板）。
+- 重播 4 局（s1 eval seed 1813、1713、1364；s2 1523），每局都有 d1／d3／d4／d5 逐步盤面，可切換深度比較。軌跡由 `traj_dump.c` 產生；d4／d5 重播的 log/CSV 在 `demo/expectimax/runs_d45/`。
+- 這 4 個 seed 不在 d4（1000–1199）／d5（1000–1099）統計範圍內，重播只作展示，不計入上表平均。
+- 截圖：`screenshot_mobile_412.png`、`screenshot_desktop_1440.png`（舊版為 `*_v1`／`*_v2`）。

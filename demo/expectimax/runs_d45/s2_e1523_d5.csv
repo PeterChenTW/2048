@@ -1,0 +1,2 @@
+seed,score,max_tile,steps,corner_rate,corner_rate_256,edge_rate_256,center_rate_256,leaves,leaves_256,leaves_per100,leaves_256_per100,boards_256,longest_streak,longest_streak_frac,final_mono_snake,final_mono_rowcol,mean_mono_snake,game_sec,ms_per_move
+1523,176220,8192,7368,0.9272529859,0.9459534368,0.0540465632,0.0000000000,15,12,0.2035830619,0.1662971175,7216,1811,0.2457926167,0.6000000000,0.7500000000,0.7427162505,434.3566,58.951760
