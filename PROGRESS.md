@@ -17,3 +17,6 @@ d=3 夠快，**不縮減，跑滿 1000 局**。每步 ms 另以單 process、各
   - 強制走通用 search 路徑（EXPECTIMAX_GENERIC=1，double 運算）的 d=1：兩 seed 各 1000 局結果亦完全相同。
 - 10:44 d=2 完成（兩 seed 各 1000 局，8 process 平行）。ms/步待單 process 量測。
 - 11:05 d=3 完成（1000 局×2 seed）＋單 process 計時完成；報告 results/ntuple/EXPECTIMAX_RESULTS.md。全部完成。
+
+## d4/d5 formal eval (2026-10-23)
+- 13:02 start (8 procs nice19, run_d45.sh). d4 200/seed done 13:35:58 (33 min, on estimate). d5 100/seed running.
