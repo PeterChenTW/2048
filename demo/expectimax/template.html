@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>搜尋讓 2048 AI 更強 — n-tuple + Expectimax</title>
+<style>
+:root{--bg:#f7f6f3;--card:#fff;--ink:#1c1f24;--muted:#6b7280;--line:#e7e4de;--a:#2563eb;--b:#c2410c;--c:#0f766e;
+--board:#bbada0;--cell:#cdc1b4;--r:18px;--gap:clamp(5px,1.4vw,10px)}
+*{box-sizing:border-box}html,body{margin:0}
+body{font-family:"Noto Sans CJK TC","Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;background:var(--bg);color:var(--ink);line-height:1.75;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1120px;margin:0 auto;padding:clamp(28px,6vw,72px) clamp(18px,4vw,40px) 80px}
+.eyebrow{font-size:13px;font-weight:600;letter-spacing:.12em;color:var(--a);margin:0 0 10px}
+h1{font-size:clamp(26px,4.6vw,42px);font-weight:800;line-height:1.3;letter-spacing:-.01em;margin:0 0 14px}
+h2{font-size:clamp(20px,3vw,26px);font-weight:750;line-height:1.4;margin:0 0 8px}
+h3{font-size:16px;font-weight:700;margin:0 0 4px}
+.lead{font-size:clamp(15px,2vw,17px);color:#444b55;max-width:720px;margin:0}
+section{margin-top:clamp(44px,7vw,80px)}
+.sub{color:var(--muted);font-size:14.5px;margin:0 0 24px;max-width:720px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:clamp(18px,3vw,30px)}
+.tabs{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:24px}
+.tab{appearance:none;text-align:left;border:1px solid var(--line);background:var(--card);border-radius:14px;padding:14px 16px;font:inherit;cursor:pointer;color:var(--ink);line-height:1.5}
+.tab b{display:block;font-size:15px;font-weight:700}.tab span{display:block;font-size:12.5px;color:var(--muted)}
+.tab[aria-selected=true]{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink) inset}
+.boards{display:grid;grid-template-columns:1fr 1fr;gap:clamp(14px,3vw,40px)}
+.bhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.boards>div{min-width:0}.bhead{flex-wrap:nowrap!important;align-items:center!important;justify-content:flex-start!important;gap:10px!important}.dl{flex:none;font-size:13px}.bhead .seg{flex:1;min-width:0}.seg{display:flex;width:100%;max-width:320px;background:#efede8;border-radius:12px;padding:3px;gap:2px}.seg button{flex:1;white-space:nowrap;appearance:none;border:0;background:transparent;font:inherit;font-size:14px;font-weight:700;color:#555c66;min-width:44px;height:36px;padding:0 8px;border-radius:9px;cursor:pointer;font-variant-numeric:tabular-nums}.seg button[aria-pressed=true]{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}.seg button[aria-pressed=true] i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:1px}
+.tag{font-size:13px;font-weight:700;padding:3px 10px;border-radius:999px;color:#fff}
+.stats{display:flex;gap:clamp(10px,2.4vw,22px);font-variant-numeric:tabular-nums}
+.stats div{display:flex;flex-direction:column;line-height:1.3}.stats small{font-size:11.5px;color:var(--muted)}
+.stats strong{font-size:clamp(15px,2.4vw,20px);font-weight:750}
+.board{background:var(--board);border-radius:12px;padding:var(--gap);display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);gap:var(--gap);aspect-ratio:1}
+.tile{background:var(--cell);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:800;color:#776e65;font-size:clamp(13px,3.6vw,30px);font-variant-numeric:tabular-nums;font-family:system-ui,"Noto Sans CJK TC",sans-serif}
+.tile.l4{font-size:clamp(11px,2.9vw,24px)}.tile.l5{font-size:clamp(9px,2.3vw,19px)}
+.end{font-size:12.5px;color:var(--muted);margin-top:8px;min-height:1.7em}
+.ctrl{margin-top:26px;display:flex;flex-direction:column;gap:14px}
+.row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.btn{appearance:none;border:0;background:var(--ink);color:#fff;border-radius:12px;height:44px;padding:0 20px;font:inherit;font-size:15px;font-weight:700;cursor:pointer}
+.btn.ghost{background:#efede8;color:var(--ink)}
+input[type=range]{accent-color:var(--ink)}#seek{width:100%}
+.lbl{font-size:13.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.note{font-size:13px;color:var(--muted);margin:18px 0 0}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:18px}.chart h3{font-size:18px}.chart .lbl{font-size:14px}
+.chart svg{width:100%;height:auto;display:block;margin-top:10px}
+.legend{display:flex;gap:10px 18px;font-size:15px;font-weight:600;color:var(--muted);margin-bottom:20px;flex-wrap:wrap}
+.legend i{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:6px;vertical-align:middle}
+.tablewrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:15px;font-variant-numeric:tabular-nums;min-width:560px}
+th,td{padding:10px 12px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}th{font-weight:600;color:var(--muted);font-size:12.5px}td:first-child,th:first-child{text-align:left}
+.callout{border-left:3px solid var(--a);padding:4px 0 4px 18px;font-size:clamp(15px,2vw,17px);max-width:760px}
+footer{margin-top:64px;font-size:12.5px;color:var(--muted)}
+.swipe{display:none}@media (max-width:640px){.seg button{min-width:0;padding:0 2px;font-size:13.5px;height:36px}.seg button i{display:none!important}.seg .dp{display:none}.seg{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))}.seg button{min-width:0!important;width:100%}.bhead .seg{margin:0}.swipe{display:block!important}.boards{grid-template-columns:1fr 1fr;gap:10px}.stats{gap:10px}.bhead{margin-bottom:8px}.boards>div{min-width:0}.bhead{flex-wrap:nowrap!important;align-items:center!important;justify-content:flex-start!important;gap:10px!important}.dl{flex:none;font-size:13px}.bhead .seg{flex:1;min-width:0}.seg{display:flex;width:100%;max-width:320px;background:#efede8;border-radius:12px;padding:3px;gap:2px}.seg button{flex:1;white-space:nowrap;appearance:none;border:0;background:transparent;font:inherit;font-size:14px;font-weight:700;color:#555c66;min-width:44px;height:36px;padding:0 8px;border-radius:9px;cursor:pointer;font-variant-numeric:tabular-nums}.seg button[aria-pressed=true]{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}.seg button[aria-pressed=true] i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:1px}
+.tag{font-size:11.5px;padding:2px 8px}
+ .tabs{grid-template-columns:1fr}.tab{padding:12px 14px}.tab span{display:inline}.tab span+span::before{content:" · "}}
+</style>
+</head>
+<body><div class="wrap">
+<header><p class="eyebrow">2048 · N-TUPLE + EXPECTIMAX</p>
+<h1>同一個價值函數，<br>看得越深就越強</h1>
+<p class="lead">網路完全沒有重新訓練，只在下棋時往前搜尋。d=1 只看一步（原本的 greedy），d=3／4／5 往前看 3／4／5 步，並對新方塊出現的所有可能取期望值。</p></header>
+
+<section><h2>同一局，選兩種深度並排</h2>
+<p class="sub">兩邊用同一個 eval seed，亂數序列完全相同。但兩邊走法不同，盤面上的空格也不同，所以新方塊落點會漸漸分岔；步數也不一樣，先結束的一邊會停在終局畫面。</p>
+<div class="tabs" id="tabs" role="tablist"></div>
+<div class="card">
+<div class="boards">
+<div><div class="bhead"><span class="lbl dl">深度</span><div class="seg" id="segL" role="group" aria-label="左邊深度"></div></div>
+<div class="stats"><div><small>分數</small><strong id="sc1">0</strong></div><div><small>最大方塊</small><strong id="mx1">0</strong></div></div>
+<div class="board" id="bd1" style="margin-top:12px"></div><div class="end" id="end1"></div></div>
+<div><div class="bhead"><span class="lbl dl">深度</span><div class="seg" id="segR" role="group" aria-label="右邊深度"></div></div>
+<div class="stats"><div><small>分數</small><strong id="sc3">0</strong></div><div><small>最大方塊</small><strong id="mx3">0</strong></div></div>
+<div class="board" id="bd3" style="margin-top:12px"></div><div class="end" id="end3"></div></div>
+</div>
+<div class="ctrl">
+<input type="range" id="seek" min="0" value="0" aria-label="進度">
+<div class="row"><button class="btn" id="play">播放</button><button class="btn ghost" id="back">−1 步</button><button class="btn ghost" id="fwd">+1 步</button>
+<span class="lbl" id="pos">第 0 步</span></div>
+<div class="row"><span class="lbl">速度</span><input type="range" id="speed" min="0" max="6" value="3" aria-label="速度"><span class="lbl" id="spd"></span></div>
+</div></div>
+<p class="note">軌跡由實驗用的 expectimax 程式重新跑出，最終分數與 1000 局評估的紀錄一致。每邊上方可切換深度 d=1／3／4／5（預設左 d=1、右 d=3）。d=4／d=5 的重播是用同一組快照、同一支程式、同一個 eval seed、nice 19 另外重跑出來的單局（評分只用 n-tuple 值）；這幾個 eval seed 不在 d4（1000–1199）、d5（1000–1099）的統計範圍內，所以這 8 局不計入下方統計。d=2 沒有存逐步軌跡，所以不能選。</p>
+</section>
+
+<section><h2>結果摘要</h2>
+<p class="sub">兩個訓練 seed 的網路（各訓練 60 分鐘）。d=1–3 各 1000 局（eval seed 1000–1999）；<b>d=4 每 seed 200 局</b>（1000–1199）、<b>d=5 每 seed 100 局</b>（1000–1099），局數較少所以信賴區間較寬。誤差線為 95% 信賴區間。</p>
+<div class="legend"><span><i style="background:#9ca3af"></i>d=1</span><span><i style="background:#60a5fa"></i>d=2</span><span><i style="background:#1d4ed8"></i>d=3</span><span><i style="background:#7c3aed"></i>d=4（200 局）</span><span><i style="background:#c2410c"></i>d=5（100 局）</span></div>
+<div class="charts" id="charts"></div>
+<p class="note" id="msnote">ms/步：d=1–3 是單一 process 另外量測（100 局）；<b>d=4／d=5 是 8 個 process 同時平行跑（每 seed 4 個、nice 19、與其他工作共用 CPU）時量的</b>，跟 d=1–3 不能直接比，只能當量級參考。</p>
+<div class="card" style="margin-top:18px"><p class="lbl swipe" style="margin:0 0 6px">表格可左右滑動</p><div class="tablewrap"><table id="tbl"></table></div><p class="note" style="margin-top:10px">* d=4／d=5 的 ms/步為 8 process 平行時量測。</p></div>
+</section>
+
+<section><h2>為什麼搜尋有用</h2>
+<p class="callout">n-tuple 的估值在單一盤面上有雜訊。往前搜尋時，葉節點的估值會對許多可能的新方塊取期望再平均，個別誤差互相抵銷，等於幫價值函數降低變異，所以同一個網路能下出更穩的棋。</p>
+</section>
+<footer>估值只來自 n-tuple V(afterstate)，沒有任何角落、單調性或空格的手工啟發式。搜尋用精確 transposition table，無抽樣。</footer>
+</div>
+<script>
+/*DATA*/
+const $=id=>document.getElementById(id), fmt=n=>Math.round(n).toLocaleString('en-US');
+const COL=['#eee4da','#ede0c8','#f2b179','#f59563','#f67c5f','#f65e3b','#edcf72','#edcc61','#edc850','#edc53f','#edc22e','#3c3a32'];
+function mk(el){el.innerHTML='';const c=[];for(let i=0;i<16;i++){const t=document.createElement('div');t.className='tile';el.appendChild(t);c.push(t)}return c}
+const C1=mk($('bd1')),C3=mk($('bd3'));
+let gi=0,pos=0,timer=null,G,dL=1,dR=3;const DEP=[1,3,4,5],DCOL={1:'#9ca3af',3:'#1d4ed8',4:'#7c3aed',5:'#c2410c'};
+const SPD=[2,5,12,30,80,200,600];
+function draw(cells,hex,score,i,n,sid,mid,eid){
+  let m=0;for(let k=0;k<16;k++){const v=parseInt(hex[15-k],16),t=cells[k];if(v>m)m=v;
+    if(!v){t.textContent='';t.style.background='';t.className='tile';continue}
+    const x=1<<v,s=String(x);t.textContent=s;t.className='tile'+(s.length>=5?' l5':s.length==4?' l4':'');
+    t.style.background=COL[Math.min(v-1,11)];t.style.color=v<=2?'#776e65':'#f9f6f2'}
+  $(sid).textContent=fmt(score);$(mid).textContent=fmt(1<<m);
+  $(eid).textContent=i>=n-1?`終局 · 共 ${fmt(n-1)} 步`:'';}
+function render(){const L=G['s'+dL].length,R=G['s'+dR].length;
+  const i=Math.min(pos,L-1),j=Math.min(pos,R-1);
+  draw(C1,G['b'+dL].substr(i*16,16),G['s'+dL][i],i,L,'sc1','mx1','end1');
+  draw(C3,G['b'+dR].substr(j*16,16),G['s'+dR][j],j,R,'sc3','mx3','end3');
+  $('seek').value=pos;$('pos').textContent=`第 ${fmt(pos)} 步 / ${fmt(Math.max(L,R)-1)}`}
+function setMax(){$('seek').max=Math.max(G['s'+dL].length,G['s'+dR].length)-1;pos=Math.min(pos,+$('seek').max)}
+function segs(){[['segL',dL],['segR',dR]].forEach(([id,cur])=>{$(id).innerHTML=DEP.map(d=>`<button data-d="${d}" aria-pressed="${d==cur}">${d==cur?`<i style="background:${DCOL[d]}"></i>`:''}<span class="dp">d=</span>${d}</button>`).join('')})}
+function setDepth(side,d){if(side=='L')dL=d;else dR=d;segs();setMax();render()}
+['L','R'].forEach(sd=>$('seg'+sd).onclick=e=>{const b=e.target.closest('button');if(b)setDepth(sd,+b.dataset.d)});segs();
+function setGame(k){gi=k;G=GAMES[k];pos=0;stop();setMax();
+  [...$('tabs').children].forEach((b,x)=>b.setAttribute('aria-selected',x==k));render()}
+function stop(){clearInterval(timer);timer=null;$('play').textContent='播放'}
+function play(){if(timer)return stop();if(pos>=+$('seek').max)pos=0;$('play').textContent='暫停';
+  timer=setInterval(()=>{const st=Math.max(1,Math.round(SPD[$('speed').value]/30));pos=Math.min(pos+st,+$('seek').max);render();if(pos>=+$('seek').max)stop()},1000/30)}
+GAMES.forEach((g,k)=>{const b=document.createElement('button');b.className='tab';b.role='tab';
+  b.innerHTML=`<b>${g.title}</b><span>網路 seed ${g.net} · eval seed ${g.eval}</span><span>d1 ${fmt(g.s1.at(-1))} · d3 ${fmt(g.s3.at(-1))} · d4 ${fmt(g.s4.at(-1))} · d5 ${fmt(g.s5.at(-1))}</span>`;b.onclick=()=>setGame(k);$('tabs').appendChild(b)});
+$('play').onclick=play;$('seek').oninput=e=>{stop();pos=+e.target.value;render()};
+$('back').onclick=()=>{stop();pos=Math.max(0,pos-1);render()};$('fwd').onclick=()=>{stop();pos=Math.min(+$('seek').max,pos+1);render()};
+const spl=()=>$('spd').textContent=`每秒 ${SPD[$('speed').value]} 步`;$('speed').oninput=spl;spl();setGame(0);{const m=(location.search+location.hash).match(/p=(\d+)/);if(m){pos=Math.min(+m[1],+$("seek").max);render()}}
+// charts: horizontal bars (readable on mobile)
+const DC=['#9ca3af','#60a5fa','#1d4ed8','#7c3aed','#c2410c'],seeds=[1,2],ds=[1,2,3,4,5],k=(s,d)=>SUMM[`s${s}_d${d}`];
+const W=360,RH=30,PL=76,PR=74,PT=30,GAP=14;
+function chart(title,sub,get,maxv,fmtv,opt={}){
+  const iw=W-PL-PR,H=PT+seeds.length*(ds.length*RH)+GAP*(seeds.length-1)+8;
+  const sx=opt.log?(v=>iw*(Math.log10(v)-opt.log[0])/(opt.log[1]-opt.log[0])):(v=>iw*v/maxv);
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${title}">`;
+  const ticks=opt.log?Array.from({length:opt.log[1]-opt.log[0]+1},(_,i)=>10**(opt.log[0]+i)):[0,.25,.5,.75,1].map(f=>f*maxv);
+  ticks.forEach((v,ti)=>{if(opt.step&&ti%opt.step)return;const x=PL+sx(v);s+=`<line x1="${x}" x2="${x}" y1="${PT-6}" y2="${H-8}" stroke="#ece9e3"/><text x="${x}" y="${PT-12}" font-size="13.5" fill="#8a8f98" text-anchor="middle">${opt.tick?opt.tick(v):fmtv(v)}</text>`});
+  let y=PT;seeds.forEach((sd,si)=>{ds.forEach((d,di)=>{const e=k(sd,d),v=get(e),w=Math.max(1,sx(v)),cy=y+RH/2;
+    s+=`<text x="${PL-10}" y="${cy+5}" font-size="14.5" fill="#444b55" text-anchor="end">${di==0?`<tspan font-weight="700">s${sd}</tspan> `:''}d=${d}</text>`;
+    s+=`<rect x="${PL}" y="${y+5}" width="${w}" height="${RH-10}" rx="4" fill="${DC[di]}"/>`;
+    let tx=PL+w;
+    if(opt.ci){const xl=PL+sx(e.lo),xh=PL+sx(e.hi);s+=`<path d="M${xl} ${cy}H${xh}M${xl} ${cy-6}V${cy+6}M${xh} ${cy-6}V${cy+6}" stroke="#1c1f24" stroke-width="1.6"/>`;tx=Math.max(tx,xh)}
+    s+=`<text x="${tx+7}" y="${cy+5}" font-size="15.5" font-weight="700" fill="#1c1f24">${fmtv(v,1)}</text>`;y+=RH});
+    y+=GAP});
+  return `<div class="card chart"><h3>${title}</h3><div class="lbl">${sub}</div>${s}</svg></div>`}
+const kf=(v,l)=>l?(v>=1000?(v/1000).toFixed(1)+'k':Math.round(v)):(v>=1000?Math.round(v/1000)+'k':Math.round(v));
+const pf=v=>(v*100).toFixed(v>0&&v<.1?1:0)+'%';
+let h=chart('平均分數','附 95% 信賴區間（d4 n=200、d5 n=100）',e=>e.mean,240000,kf,{ci:true});
+h+=chart('中位數分數','',e=>e.median,240000,kf);
+h+=chart('到達 16384 的比例','',e=>e.p[3],1,pf);
+h+=chart('到達 8192 的比例','',e=>e.p[2],1,pf);
+h+=chart('每步耗時（ms，對數刻度）','d4/d5 為 8 process 平行時量測',e=>e.ms,0,(v,l)=>v<0.01?v.toFixed(4):v<1?v.toFixed(3):v.toFixed(1),{log:[-4,2],step:2,tick:v=>{const p=Math.round(Math.log10(v));return p>=0?String(v):'10'+'⁻'+'⁰¹²³⁴⁵'[-p]}});
+$('charts').innerHTML=h;
+let tb='<tr><th>網路</th><th>深度</th><th>平均（95% CI）</th><th>中位數</th><th>≥2048</th><th>≥4096</th><th>≥8192</th><th>≥16384</th><th>ms/步</th><th>局數</th></tr>';
+seeds.forEach(s=>ds.forEach(d=>{const e=k(s,d),q=v=>(v*100).toFixed(1)+'%';tb+=`<tr><td>seed ${s}</td><td>d=${d}</td><td>${fmt(e.mean)}（${fmt(e.lo)}–${fmt(e.hi)}）</td><td>${fmt(e.median)}</td>${e.p.map(v=>`<td>${q(v)}</td>`).join('')}<td>${e.ms<1?e.ms.toFixed(4):e.ms.toFixed(1)}${d>=4?'*':''}</td><td>${e.n}</td></tr>`}));
+$('tbl').innerHTML=tb;
+window.__demo={get pos(){return pos},get gi(){return gi},get dL(){return dL},get dR(){return dR},get max(){return +$('seek').max}};
+</script></body></html>

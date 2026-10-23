@@ -1,0 +1,3 @@
+EXPECTIMAX d=5 nodes=6655205883 EVAL ../../../corner/ntuple/snapshots/s1_t03600.bin games=3 secs=1363.7
+EXPECTIMAX d=5 nodes=12724235998 EVAL ../../../corner/ntuple/rerun_s2/snapshots/s2_t03600.bin games=5 secs=2649.4
+D5DONE

@@ -1,0 +1,11 @@
+SNAP /workspace/rl2048-review/corner/ntuple/rerun_s2/snapshots/s2_t00005.bin train_s=5.00 games=11951 updates=6518582
+SNAP /workspace/rl2048-review/corner/ntuple/rerun_s2/snapshots/s2_t00015.bin train_s=15.00 games=26642 updates=19419805
+SNAP /workspace/rl2048-review/corner/ntuple/rerun_s2/snapshots/s2_t00030.bin train_s=30.00 games=41682 updates=38535963
+SNAP /workspace/rl2048-review/corner/ntuple/rerun_s2/snapshots/s2_t00060.bin train_s=60.00 games=63044 updates=77595024
+SNAP /workspace/rl2048-review/corner/ntuple/rerun_s2/snapshots/s2_t00120.bin train_s=120.00 games=99418 updates=156796906
+SNAP /workspace/rl2048-review/corner/ntuple/rerun_s2/snapshots/s2_t00240.bin train_s=240.00 games=160531 updates=311559422
+SNAP /workspace/rl2048-review/corner/ntuple/rerun_s2/snapshots/s2_t00480.bin train_s=480.00 games=265009 updates=621593705
+SNAP /workspace/rl2048-review/corner/ntuple/rerun_s2/snapshots/s2_t00900.bin train_s=925.90 games=422005 updates=1165802110
+SNAP /workspace/rl2048-review/corner/ntuple/rerun_s2/snapshots/s2_t01800.bin train_s=1800.00 games=690400 updates=2269279217
+SNAP /workspace/rl2048-review/corner/ntuple/rerun_s2/snapshots/s2_t03600.bin train_s=3600.00 games=1232156 updates=4628469960
+END train_s=3600.00 games=1232156 updates=4628469960
