@@ -46,7 +46,7 @@ No arm reached 32768. ms/move for d1–d3 was measured single-process over 100 g
 
 ### The corner strategy is learned, not programmed
 
-The agent keeps its largest tile in a corner, and nothing in the code tells it to. The training code (`train.c` with `ntuple.h`/`common.h`; `train.c` itself is not committed on this branch, but the shared headers are in `ntuple_expectimax/`) has no corner, monotonicity, snake or empty-cell features, no reward shaping, no search and no imitation. The only inputs are the game rules and the score. Corner metrics are computed only in the evaluators, as diagnostics, and the training code never reads them. The search in `ntuple_expectimax/expectimax.c` also uses only n-tuple values; its corner and monotonicity functions just write diagnostic CSV columns.
+The agent keeps its largest tile in a corner, and nothing in the code tells it to. The training code (`ntuple/train.c`, `ntuple/ntuple.h`, `ntuple/common.h`) has no corner, monotonicity, snake or empty-cell features, no reward shaping, no search and no imitation. The only inputs are the game rules and the score. Corner metrics are computed only in the evaluators, as diagnostics, and the training code never reads them. The search in `ntuple_expectimax/expectimax.c` also uses only n-tuple values; its corner and monotonicity functions just write diagnostic CSV columns.
 
 Corner behaviour emerges during training (source: `results/ntuple/NTUPLE_RESULTS.md` §3; seed 1, 1000 games per snapshot). Here "corner≥256" is the share of steps with the max tile in a corner, counted once the max tile is ≥256:
 
@@ -108,6 +108,19 @@ The best DQN result was about 12k mean (Y s202: 12,317, ≥1024 65%), still belo
 - n-tuple / expectimax: a C compiler (gcc) on Linux, using only libc and libm.
 - DQN branches: Python 3 with the packages in `requirements.txt` on those branches (torch, numpy, pygame, matplotlib, seaborn, pandas, pytest).
 
+### n-tuple training (this branch, `ntuple/`)
+```bash
+cd ntuple
+nice -n 19 make            # builds train, eval, record, test_ntuple
+nice -n 19 make test       # rule / n-tuple unit checks
+mkdir -p snapshots
+# usage: ./train SEED TOTAL_SECONDS OUTDIR   (reported runs: SEED 1 and 2, 3600 s)
+nice -n 19 ./train 1 3600 snapshots
+# usage: ./eval SNAPSHOT|random SEED_START N OUT_CSV   (greedy, no learning)
+nice -n 19 ./eval snapshots/s1_t03600.bin 1000 1000 s1_t60.csv
+```
+Snapshots are written at 5 s, 15 s, 30 s, 1, 2, 4, 8, 15, 30 and 60 min of training time (≈135 MB each, not committed). The pre-registered design is in `ntuple/NTUPLE_PREREG.md`. The helper scripts in `ntuple/` (`run_evals*.sh`, `summarize.py`, `monitor.py`, `throughput.py`) are copied unchanged from the original runs and contain absolute paths from that machine.
+
 ### Expectimax evaluation (this branch)
 ```bash
 cd ntuple_expectimax
@@ -119,7 +132,7 @@ python3 summarize.py          # rebuild the results tables
 `run_all.sh` (d2/d3 + timing) and `run_d45.sh` (d4/d5) are the scripts used for the reported runs. They expect the snapshots under `../../../corner/ntuple/`. **Snapshot `.bin` files are not committed** (≈135 MB each); their sha256 hashes are in `ntuple_expectimax/snapshots.sha256`.
 
 ### Demo
-Open `demo/expectimax/expectimax_demo.html` in any browser; it needs no server. To regenerate it, run `python3 build.py` in `demo/expectimax/`. That reads `template.html`, `traj_*.txt` and the summary JSON. Note that `build.py` currently reads the summary from an absolute path; edit it to point at `results/ntuple/expectimax/summary.json` or `demo/expectimax/summary.json`. `traj_dump.c` produced the replay trajectories.
+Open `demo/expectimax/expectimax_demo.html` in any browser; it needs no server. To regenerate it, run `python3 build.py` in `demo/expectimax/`. That reads `template.html`, `traj_*.txt` and the summary JSON. `build.py` reads `results/ntuple/expectimax/summary.json` relative to its own location. `traj_dump.c` produced the replay trajectories.
 
 ### DQN training / evaluation (branches `dqn-revamp` … `exp/round3-sym-gamma`)
 ```bash
@@ -136,6 +149,7 @@ The original single-script version (`python main.py`, which trains or plays with
 ```
 ├── main.py, RL.py, game_2048.py   original DQN + pygame game (legacy)
 ├── model/, result/                 original DQN checkpoint and training plot
+├── ntuple/                         n-tuple TD(0) training (train.c), eval, tests, Makefile, PREREG
 ├── ntuple_expectimax/              expectimax search (expectimax.c), n-tuple headers, eval.c,
 │                                   run scripts, summarize.py, snapshots.sha256
 ├── results/ntuple/

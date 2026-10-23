@@ -1,0 +1,7 @@
+train
+eval
+record
+test_ntuple
+*.bin
+snapshots/
+logs/

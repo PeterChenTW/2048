@@ -1,5 +1,7 @@
-import json, glob, re
-S = json.load(open('/workspace/rl2048-review/experiments/wt-ntuple-expectimax/results/ntuple/expectimax/summary.json'))
+import json, glob, re, os
+HERE = os.path.dirname(os.path.abspath(__file__))
+os.chdir(HERE)
+S = json.load(open(os.path.join(HERE, '..', '..', 'results', 'ntuple', 'expectimax', 'summary.json')))
 games = [('1', 1813, '中位數局', '兩種深度都落在各自中位數附近'),
          ('1', 1713, 'd=3 反而輸給 d=1 的局', 'd=3 只到第 1 四分位，比 d=1 低'),
          ('2', 1523, '中位數局（seed 2）', 'seed 2 網路，兩邊都接近中位數'),
