@@ -70,10 +70,10 @@ Before n-tuple, the project tried many DQN variants (see the experiment branches
 | round | tried | best mean | outcome | details |
 |---|---|---|---|---|
 | Baseline | original DQN + target net + PER checkpoint | 7,738 | reference | `results/baseline.md` |
-| Step 2–3 | fixed DQN, one-hot + dueling, 3-step (15 min) | 2,449 | none near baseline | `results/step2.md`, `results/compare/README.md` |
-| Step 4 | 3 h active, arms A and C | 5,932 | target missed | `results/step4/RESULTS.md` |
-| Round 1 | afterstate, capacity/n-step, linear reward, conv2x2, restart pool | 10,349 (afterstate 180 min, s202) | all rejected; afterstate kept as control C | `results/experiments_STATUS.md` |
-| Round 2 | ε = 0, replay ratio 0.25, value skip, vectorized target | 11,275 (R, s303) | all rejected | `research/round2/REPORT.md`, `results/round2/` |
+| Step 2–3 | fixed DQN, one-hot + dueling, 3-step (15 min) | 2,449 (control A) | none near baseline | `results/compare/README.md` |
+| Step 4 | 3 h active, arms A and C | 5,932 (arm A, 2-seed mean) | target missed | `results/step4/RESULTS.md` |
+| Round 1 | afterstate, capacity/n-step, linear reward, conv2x2, restart pool | 10,349 (afterstate 180 min, s202) | all rejected; afterstate kept as control C | `results/experiments_STATUS.md`, `results/exp1_afterstate/EXTRA_afterstate.md` |
+| Round 2 | ε = 0, replay ratio 0.25, value skip, vectorized target | 11,275 (R, s303) | all rejected | `research/round2/REPORT.md`, `results/round2/R_RESULTS.md` |
 | Round 3 | gamma 1 + h(x) rescale, D4 symmetry, both | 12,317 (Y, s202) | all rejected | `results/round3_sym_gamma/ROUND3_RESULTS.md` |
 
 ## Legacy code
