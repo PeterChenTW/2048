@@ -112,6 +112,7 @@ The best DQN result was about 12k mean (Y s202: 12,317, ≥1024 65%), still belo
 ```bash
 cd ntuple
 nice -n 19 make            # builds train, eval, record, test_ntuple
+# without make: for b in train eval record test_ntuple; do gcc -O3 -march=native -o $b $b.c -lm; done
 nice -n 19 make test       # rule / n-tuple unit checks
 mkdir -p snapshots
 # usage: ./train SEED TOTAL_SECONDS OUTDIR   (reported runs: SEED 1 and 2, 3600 s)
@@ -119,7 +120,7 @@ nice -n 19 ./train 1 3600 snapshots
 # usage: ./eval SNAPSHOT|random SEED_START N OUT_CSV   (greedy, no learning)
 nice -n 19 ./eval snapshots/s1_t03600.bin 1000 1000 s1_t60.csv
 ```
-Snapshots are written at 5 s, 15 s, 30 s, 1, 2, 4, 8, 15, 30 and 60 min of training time (≈135 MB each, not committed). The pre-registered design is in `ntuple/NTUPLE_PREREG.md`. The helper scripts in `ntuple/` (`run_evals*.sh`, `summarize.py`, `monitor.py`, `throughput.py`) are copied unchanged from the original runs and contain absolute paths from that machine.
+Training stops at the last snapshot point ≤ TOTAL_SECONDS, so use at least 5 (e.g. `./train 1 5 snapshots` is a 5-second smoke run). Snapshots are written at 5 s, 15 s, 30 s, 1, 2, 4, 8, 15, 30 and 60 min of training time (≈135 MB each, not committed). The pre-registered design is in `ntuple/NTUPLE_PREREG.md`. The helper scripts in `ntuple/` (`run_evals*.sh`, `summarize.py`, `monitor.py`, `throughput.py`) are copied unchanged from the original runs and contain absolute paths from that machine.
 
 ### Expectimax evaluation (this branch)
 ```bash
