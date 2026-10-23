@@ -2,6 +2,10 @@
 
 An AI for the game 2048. The project started as a small DQN with a pygame GUI. It went through several rounds of DQN experiments and ended with a tabular **n-tuple network trained with afterstate TD(0)**, played with **expectimax search**. That approach is the current best.
 
+[![Replay: expectimax depth 4 vs depth 5 on s1 eval game 1713](demo/expectimax/media/replay_s1_e1713.gif)](demo/expectimax/media/replay_s1_e1713.mp4)
+
+*10-second GIF from the [41-second MP4 replay](demo/expectimax/media/replay_s1_e1713.mp4): seed-1 network, eval game 1713. Part 1 shows depth 1 vs depth 5 on the same game (d1 ends at 142,468 / max tile 8192). Part 2 shows depth 4 vs depth 5, where d5 reaches 16384 and ends at 286,832 (d4: 133,032). Values are from `demo/expectimax/traj_s1_e1713_d{1,4,5}.txt`.*
+
 All numbers in this README come from result files committed in this repo, and each section names its source file. Scores are the standard 2048 score (sum of merged tile values). Unless stated otherwise, evaluation uses fixed eval seeds starting at 1000, so different methods play the same games.
 
 ## Current best method: n-tuple + afterstate TD(0) + expectimax
@@ -59,7 +63,7 @@ A random policy scores 2.1% on the same metric. Seed 2 follows the same curve (�
 
 ### Demo
 
-`demo/expectimax/expectimax_demo.html` is a single offline HTML file. It shows result charts and four replayed games (seed 1 eval seeds 1813, 1713, 1364; seed 2 eval seed 1523), and each replay can switch between d1, d3, d4 and d5. These four eval seeds lie outside the d4/d5 statistics range, so the replays are illustrations only. Screenshots are `demo/expectimax/screenshot_mobile_412.png` and `screenshot_desktop_1440.png`; older versions are kept as `*_v1`/`*_v2`.
+`demo/expectimax/expectimax_demo.html` is a single offline HTML file. It shows result charts and four replayed games (seed 1 eval seeds 1813, 1713, 1364; seed 2 eval seed 1523), and each replay can switch between d1, d3, d4 and d5. These four eval seeds lie outside the d4/d5 statistics range, so the replays are illustrations only. A replay video of eval game 1713 is in `demo/expectimax/media/` (`replay_s1_e1713.mp4`, `replay_s1_e1713.gif`, rendered by `media/record_replay.js` with Playwright and ffmpeg). Screenshots are `demo/expectimax/screenshot_mobile_412.png` and `screenshot_desktop_1440.png`; older versions are kept as `*_v1`/`*_v2`.
 
 ## DQN experiments (history)
 
@@ -101,6 +105,67 @@ Afterstate long runs (180 min) reached 7,898 (≥1024 27%; best snapshot t150 9,
 | GY | both | 0/3 | rejected (×0.72–0.93) |
 
 The best DQN result was about 12k mean (Y s202: 12,317, ≥1024 65%), still below the 15,000 / 80% target. The n-tuple player reached about 100k mean (≥1024 ≥ 99%) after 60 minutes on one core, so the project moved to n-tuple + expectimax.
+
+## Original project (legacy DQN, `main` branch)
+
+This is the starting point of the project, and the files are still on this branch: a 2048 game with a pygame UI and a DQN agent.
+
+- `main.py`: entry point. `train_DDQN(episodes, model_name)` trains the agent. It also holds the code that starts the GUI game.
+- `game_2048.py`: the 2048 game, with the game logic and the pygame UI.
+- `RL.py`: the DQN agent (network, replay memory, training step).
+
+**Rules.** Slide the tiles on a 4×4 grid. After each move a 2 or 4 appears in a random empty cell. Two equal tiles that collide merge into their sum. The game ends when no move is possible.
+
+```bash
+python main.py
+```
+As committed, `main.py`'s `__main__` block calls `train_DDQN` in an endless `while True` loop, so this command trains. The GUI code after the loop is never reached. To play with the GUI, comment out the loop first.
+
+### Training flow
+```mermaid
+graph TD
+    A[Initialize agent, env, records]
+    B[Train for episodes]
+    C[Get initial state]
+    D[Agent chooses action]
+    E[Env executes action, returns reward etc.]
+    F[Store transition]
+    G[Update state]
+    H{Done?}
+    I[Record and print episode info]
+    J[Agent replays memory]
+    K[Update target net periodically]
+    L[Reset env]
+    M[Save model periodically]
+    A-->B
+    B-->C
+    C-->D
+    D-->E
+    E-->F
+    E-->G
+    G-->H
+    H--Yes-->I
+    I-->L
+    L-->B
+    H--No-->D
+    B-->J
+    J-->K
+    K-->M
+```
+
+### Original training results
+![Original DQN training curves](result/nn_prioritize_replay_no_invalid_gamma_099_2.png)
+
+The four subplots show game score, loss, game turns and the invalid-move ratio over training for the original checkpoint `model/nn_prioritize_replay_no_invalid_gamma_099_2`. Measured later with a greedy evaluation, this checkpoint averages 7,738 over 100 games (see Baseline above).
+
+### Lessons learned (original project)
+- Removing invalid moves reduced the action space and made training more efficient.
+- Too high an initial learning rate, or an unsuitable optimizer, easily pushes training to divergence, so monitor the loss.
+- Epsilon (the exploration rate) is an important hyperparameter.
+- Fixing the random seed at the start makes training deterministic and reproducible.
+
+### The original agent in action
+![Original DQN agent playing 2048](game_recording.gif)
 
 ## Usage
 
